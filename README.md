@@ -73,6 +73,78 @@ terraform destroy -var-file=dev.tfvars
 
 See [variables.tf](variables.tf) for full type definitions and optional fields.
 
+## CI/CD — GitHub Actions
+
+The workflow at [`.github/workflows/terraform.yml`](../.github/workflows/terraform.yml) runs automatically:
+
+| Event | What happens |
+|---|---|
+| Pull request to `main` | `init` → `fmt check` → `validate` → `plan` (result posted as PR comment) |
+| Push / merge to `main` | Same as above, then `apply` |
+
+The workflow only triggers when files inside `aws-terra/` change.
+
+### One-time setup
+
+#### 1. Create an IAM OIDC Identity Provider for GitHub
+
+In the AWS Console → IAM → Identity Providers → Add provider:
+
+- Provider type: **OpenID Connect**
+- Provider URL: `https://token.actions.githubusercontent.com`
+- Audience: `sts.amazonaws.com`
+
+#### 2. Create an IAM Role for GitHub Actions
+
+Create a role with a trust policy that allows your repo to assume it:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:<YOUR_ORG>/<YOUR_REPO>:*"
+        }
+      }
+    }
+  ]
+}
+```
+
+Attach a policy granting the permissions Terraform needs (Lambda, S3, Secrets Manager, IAM, CloudWatch Logs).
+
+#### 3. Add the GitHub secret
+
+In your GitHub repo → Settings → Secrets and variables → Actions:
+
+| Secret | Value |
+|---|---|
+| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>` |
+
+#### 4. (Optional) Add a Terraform backend for remote state
+
+Add an S3 backend to `providers.tf` so state is shared across runs:
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket = "your-tfstate-bucket"
+    key    = "pos-pipeline/dev/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+```
+
 ## Environments
 
 Environment-specific variable files follow the `<env>.tfvars` naming convention:

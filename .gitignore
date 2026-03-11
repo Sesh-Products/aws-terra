@@ -1,0 +1,23 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Lambda build artifacts
+.builds/
+
+# Environment / secrets
+*.env
+!*.tfvars.example
+
+# macOS
+.DS_Store
+
+.builds/
