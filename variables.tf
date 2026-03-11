@@ -17,6 +17,75 @@ variable "project" {
 }
 
 # =============================================================================
+# Lambda Layers
+# =============================================================================
+
+variable "lambda_layers" {
+  description = <<-EOT
+    Map of Lambda layer configurations. Each key is a logical name.
+    The output ARN can be referenced in lambda_functions[*].layer_arns.
+  EOT
+  type = map(object({
+    layer_name               = string
+    filename                 = string
+    description              = optional(string, "")
+    license_info             = optional(string, null)
+    compatible_runtimes      = optional(list(string), [])
+    compatible_architectures = optional(list(string), ["x86_64"])
+    skip_destroy             = optional(bool, false)
+  }))
+  default = {}
+}
+
+# =============================================================================
+# Secrets Manager
+# =============================================================================
+
+variable "secrets" {
+  description = <<-EOT
+    Map of Secrets Manager secrets to create. Each key is a logical name.
+    secret_string is sensitive — pass via tfvars or environment variable, never hardcode.
+  EOT
+  type = map(object({
+    secret_name             = string
+    description             = optional(string, "")
+    kms_key_id              = optional(string, null)
+    secret_string           = optional(string, null)
+    recovery_window_in_days = optional(number, 30)
+    secret_policy           = optional(string, null)
+    rotation_lambda_arn     = optional(string, null)
+    rotation_days           = optional(number, 30)
+  }))
+  default = {}
+}
+
+# =============================================================================
+# S3
+# =============================================================================
+
+variable "s3_buckets" {
+  description = <<-EOT
+    Map of S3 bucket configurations. Each key is a logical name; bucket_name
+    must be globally unique. All fields except bucket_name are optional.
+  EOT
+  type = map(object({
+    bucket_name                      = string
+    force_destroy                    = optional(bool, false)
+    versioning_status                = optional(string, "Disabled")
+    sse_algorithm                    = optional(string, "AES256")
+    kms_master_key_id                = optional(string, null)
+    bucket_key_enabled               = optional(bool, false)
+    block_public_acls                = optional(bool, true)
+    block_public_policy              = optional(bool, true)
+    ignore_public_acls               = optional(bool, true)
+    restrict_public_buckets          = optional(bool, true)
+    lifecycle_rules                  = optional(list(any), [])
+    intelligent_tiering_configurations = optional(list(any), [])
+  }))
+  default = {}
+}
+
+# =============================================================================
 # Lambda
 # =============================================================================
 
@@ -29,7 +98,7 @@ variable "lambda_functions" {
   type = map(object({
     runtime                        = optional(string, "python3.12")
     handler                        = optional(string, "index.handler")
-    filename                       = optional(string, "./modules/compute/function.zip")
+    source_file                    = optional(string, "./src/index.py")
     memory_size                    = optional(number, 256)
     timeout                        = optional(number, 60)
     ephemeral_storage_size         = optional(number, null)
@@ -39,6 +108,7 @@ variable "lambda_functions" {
     create_alias                   = optional(bool, false)
     log_retention_days             = optional(number, 14)
     log_level                      = optional(string, "INFO")
+    layer_arns                     = optional(list(string), [])
   }))
   default = {
     api = {

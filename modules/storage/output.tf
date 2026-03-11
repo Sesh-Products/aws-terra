@@ -52,7 +52,7 @@ output "website_domain" {
 
 output "versioning_status" {
   description = "Current versioning state of the bucket"
-  value       = aws_s3_bucket_versioning.this.versioning_configuration[0].status
+  value       = length(aws_s3_bucket_versioning.this) > 0 ? aws_s3_bucket_versioning.this[0].versioning_configuration[0].status : "Disabled"
 }
 
 # =============================================================================
@@ -61,5 +61,5 @@ output "versioning_status" {
 
 output "sse_algorithm" {
   description = "Server-side encryption algorithm applied to the bucket"
-  value       = aws_s3_bucket_server_side_encryption_configuration.this.rule[0].apply_server_side_encryption_by_default[0].sse_algorithm
+  value       = tolist(aws_s3_bucket_server_side_encryption_configuration.this.rule)[0].apply_server_side_encryption_by_default[0].sse_algorithm
 }

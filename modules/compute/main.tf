@@ -149,6 +149,9 @@ resource "aws_lambda_function" "this" {
     }
   }
 
+  # ---- Layers ----------------------------------------------------------------
+  layers = length(var.layer_arns) > 0 ? var.layer_arns : null
+
   # ---- Advanced logging ------------------------------------------------------
   dynamic "logging_config" {
     for_each = var.logging_config != null ? [var.logging_config] : []

@@ -407,6 +407,21 @@ variable "destination_on_failure_arn" {
 }
 
 # =============================================================================
+# Layers
+# =============================================================================
+
+variable "layer_arns" {
+  description = "List of Lambda layer version ARNs to attach to the function. Maximum of 5 layers."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.layer_arns) <= 5
+    error_message = "A Lambda function can have at most 5 layers attached."
+  }
+}
+
+# =============================================================================
 # Lambda Permissions (Triggers)
 # =============================================================================
 
