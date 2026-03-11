@@ -450,3 +450,9 @@ variable "allowed_triggers" {
   }))
   default = {}
 }
+
+variable "s3_bucket_arns" {
+  description = "List of S3 bucket ARNs the Lambda function needs access to"
+  type        = list(string)
+  default     = []
+}

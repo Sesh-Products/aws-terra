@@ -10,6 +10,61 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "COLUMN_CONFIG" {
+  description = "configurations for segregating columns"
+  type        = map(map(list(string)))
+  default = {
+    "buc-ees" = {
+      "Trans_date" = ["Week Label"]
+      "Store"      = ["Store"]
+      "Product"    = ["Item"]
+      "EQ Units"   = ["Sale"]
+    },
+    "qt" = {
+      "Trans_date"  = ["Trans Date"]
+      "Store no"    = ["Store No"]
+      "Address"     = ["Address"]
+      "City"        = ["City"]
+      "County"      = ["County"]
+      "State"       = ["State"]
+      "Postal Code" = ["Postal Code"]
+      "Product"     = ["Item Description"]
+      "Sales"       = ["Total Sales Dollars"]
+    }
+  }
+}
+
+variable "RAW_BUCKET_EMAIL" {
+  description = "S3 Bucket to save raw data"
+  type        = string
+  default     = "pos-raw-email-bucket"
+}
+variable "TRANSFORMED_BUCKET" {
+  description = "S3 Bucket to save transformed data"
+  type        = string
+  default     = "pos-processed-email-bucket"
+}
+
+variable "VENDOR_CONFIG" {
+  description = "Vendor identification config — keywords and file filters per vendor"
+  type        = map(map(list(string)))
+  default = {
+    "qt" = {
+      "keywords"    = ["qt", "quiktrip"]
+      "file_filter" = ["pos"]
+    },
+    "buc-ees" = {
+      "keywords"       = ["buc", "buc-ees", "bucees"]
+      "subject_filter" = ["sesh weekly report"]
+      "file_filter"    = ["sesh weekly report"]
+    },
+    "nielsen" = {
+      "keywords"    = ["nielsen", "niq", "rms"]
+      "file_filter" = ["pos"]
+    }
+  }
+}
+
 variable "project" {
   description = "Project name applied as a tag to all resources"
   type        = string

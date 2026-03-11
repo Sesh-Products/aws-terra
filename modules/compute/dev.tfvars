@@ -4,12 +4,12 @@
 # =============================================================================
 
 # General
-function_name = "my-python-lambda-dev"
+function_name = "aws-terra-etl-pos"
 description   = "Python Lambda function — development environment"
 
 tags = {
   Environment = "dev"
-  Project     = "aws-terra"
+  Project     = "aws-terra-pos"
   Team        = "platform"
   CostCenter  = "engineering"
 }
@@ -41,7 +41,7 @@ attach_vpc_policy  = false  # set to true if vpc_config is provided
 environment_variables = {
   ENVIRONMENT = "dev"
   LOG_LEVEL   = "DEBUG"
-  APP_NAME    = "aws-terra"
+  APP_NAME    = "aws-terra-pos"
 }
 
 # CloudWatch Logs

@@ -1,10 +1,21 @@
 # =============================================================================
+# Mode switch
+# =============================================================================
+variable "use_ssm_layer" {
+  description = "true = fetch AWS managed pandas layer via SSM. false = upload custom zip."
+  type        = bool
+  default     = false
+}
+
+
+# =============================================================================
 # General
 # =============================================================================
 
 variable "layer_name" {
   description = "Name for the Lambda layer version"
   type        = string
+  default     = "pandas-layer"
 }
 
 variable "description" {
@@ -26,6 +37,7 @@ variable "license_info" {
 variable "filename" {
   description = "Path to the local .zip file containing the layer contents"
   type        = string
+  default     = null
 }
 
 variable "source_code_hash" {
@@ -75,4 +87,26 @@ variable "skip_destroy" {
   description = "When true, Terraform will not delete old layer versions on destroy or re-deploy."
   type        = bool
   default     = false
+}
+
+# =============================================================================
+# Pandas
+# =============================================================================
+
+variable "pandas_version" {
+  description = "AWS SDK for pandas version"
+  type        = string
+  default     = "3.15.1"
+}
+
+variable "python_version" {
+  description = "Python version string for SSM path e.g. py3.12"
+  type        = string
+  default     = "py3.12"
+}
+
+variable "architecture" {
+  description = "Lambda architecture — arm64 or x86_64"
+  type        = string
+  default     = "arm64"
 }
