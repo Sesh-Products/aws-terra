@@ -67,6 +67,7 @@ module "storage" {
   restrict_public_buckets            = each.value.restrict_public_buckets
   lifecycle_rules                    = each.value.lifecycle_rules
   intelligent_tiering_configurations = each.value.intelligent_tiering_configurations
+  seed_files                         = each.value.seed_files
 
   tags = {
     Environment = var.environment
@@ -101,7 +102,9 @@ module "compute" {
   )
   s3_bucket_arns = [
     "arn:aws:s3:::pos-raw-email-bucket",     
-    "arn:aws:s3:::pos-processed-email-bucket"    
+    "arn:aws:s3:::pos-processed-email-bucket",
+    "arn:aws:s3:::pos-lookup-data",
+    "arn:aws:s3:::product-upc-mapping"
   ]
   filename         = data.archive_file.lambda_zips[each.key].output_path
   source_code_hash = data.archive_file.lambda_zips[each.key].output_base64sha256

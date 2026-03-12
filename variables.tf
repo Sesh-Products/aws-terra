@@ -12,24 +12,25 @@ variable "environment" {
 
 variable "COLUMN_CONFIG" {
   description = "configurations for segregating columns"
-  type        = map(map(list(string)))
+  type        = map(map(string))
   default = {
     "buc-ees" = {
-      "Trans_date" = ["Week Label"]
-      "Store"      = ["Store"]
-      "Product"    = ["Item"]
-      "EQ Units"   = ["Sale"]
+      "Trans_date" = "Week Label"
+      "Store"      = "Store"
+      "Product"    = "Item"
+      "EQ Units"   = "Sale"
     },
     "qt" = {
-      "Trans_date"  = ["Trans Date"]
-      "Store no"    = ["Store No"]
-      "Address"     = ["Address"]
-      "City"        = ["City"]
-      "County"      = ["County"]
-      "State"       = ["State"]
-      "Postal Code" = ["Postal Code"]
-      "Product"     = ["Item Description"]
-      "Sales"       = ["Total Sales Dollars"]
+      "Trans_date"  = "Trans Date"
+      "Store no"    = "Store No"
+      "Address"     = "Address"
+      "City"        = "City"
+      "County"      = "County"
+      "State"       = "State"
+      "Postal Code" = "Postal Code"
+      "Product UPC" = "Vendor Item #"
+      "Product"     = "Item Description"
+      "Sales"       = "Total Sales Dollars"
     }
   }
 }
@@ -136,6 +137,11 @@ variable "s3_buckets" {
     restrict_public_buckets          = optional(bool, true)
     lifecycle_rules                  = optional(list(any), [])
     intelligent_tiering_configurations = optional(list(any), [])
+    seed_files                       = optional(map(object({
+      local_path                     = string
+      s3_key                         = string
+      content_type                   = optional(string, "text/csv")
+    })), {})
   }))
   default = {}
 }

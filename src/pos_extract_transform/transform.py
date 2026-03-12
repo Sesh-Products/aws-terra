@@ -5,9 +5,15 @@ import pandas as pd
 import zipfile
 import xml.etree.ElementTree as ET
 from io import StringIO, BytesIO
+import boto3
+
+s3 = boto3.client("s3")
+product_map_bucket = "product-upc-mapping"
+product_map_bucket_key    = "product-sku.csv"
 
 COLUMN_CONFIG = json.loads(os.environ.get("COLUMN_CONFIG", "{}"))
-
+response = s3.get_object(Bucket=product_map_bucket, Key=product_map_bucket_key)
+mapping_bucket = df = pd.read_csv(BytesIO(response["Body"].read()))
 
 def fix_xlsx(body_bytes):
     input_buf  = BytesIO(body_bytes)
@@ -103,7 +109,7 @@ def clean_dataframe(df_raw, store_name):
         return melt_bucees(df_raw)
 
     config           = COLUMN_CONFIG[store_name]
-    expected_columns = [cols[0] for cols in config.values()]
+    expected_columns = list(config.values())
     header_row       = find_header_row(df_raw, expected_columns)
 
     df         = df_raw.iloc[header_row + 1:].copy()
@@ -127,15 +133,83 @@ def clean_dataframe(df_raw, store_name):
 def extract_columns(df, store_name):
     config     = COLUMN_CONFIG[store_name]
     rename_map = {
-        cols[0]: standard
+        cols: standard
         for standard, cols in config.items()
-        if cols[0] in df.columns
+        if cols in df.columns
     }
     if not rename_map:
         return None
     df_extracted = df[list(rename_map.keys())].copy()
     df_extracted.rename(columns=rename_map, inplace=True)
     return df_extracted
+
+def product_mapping(df, mapping_bucket):
+    original_cols = df.columns.tolist()
+
+    df['Product UPC']                         = df['Product UPC'].astype(str).str.strip()
+    mapping_bucket['Unit (Can Eaches)']       = mapping_bucket['Unit (Can Eaches)'].astype(str).str.strip()
+    mapping_bucket['Master Case (11 Digits)'] = mapping_bucket['Master Case (11 Digits)'].astype(str).str.strip()
+    mapping_bucket['Carton (Roll 5 pack)']    = mapping_bucket['Carton (Roll 5 pack)'].astype(str).str.strip()
+
+    df_merge = df.merge(
+        mapping_bucket,
+        how='left',
+        left_on='Product UPC',
+        right_on='Unit (Can Eaches)'
+    )
+
+    matched   = df_merge[df_merge['Unit (Can Eaches)'].notna()].copy()
+    unmatched = df_merge[df_merge['Unit (Can Eaches)'].isna()].copy()
+
+    matched['Product_UPC'] = matched['Unit (Can Eaches)'].astype(str)
+
+    if not unmatched.empty:
+        unmatched = unmatched.drop(columns=mapping_bucket.columns.tolist(), errors='ignore')
+
+        unmatched['product_11'] = unmatched['Product UPC'].astype(str).str[:11]
+
+        df_fallback_merge = unmatched.merge(
+            mapping_bucket,
+            how='left',
+            left_on='product_11',
+            right_on='Master Case (11 Digits)'
+        )
+        df_fallback_merge.drop(columns=['product_11'], inplace=True)
+
+        matched_11   = df_fallback_merge[df_fallback_merge['Master Case (11 Digits)'].notna()].copy()
+        unmatched_11 = df_fallback_merge[df_fallback_merge['Master Case (11 Digits)'].isna()].copy()
+
+        matched_11['Product_UPC'] = matched_11['Master Case (11 Digits)'].astype(str)
+
+        if not unmatched_11.empty:
+            unmatched_11 = unmatched_11.drop(columns=mapping_bucket.columns.tolist(), errors='ignore')
+
+            df_carton_merge = unmatched_11.merge(
+                mapping_bucket,
+                how='left',
+                left_on='Product UPC',
+                right_on='Carton (Roll 5 pack)'
+            )
+
+            df_carton_merge['Product_UPC'] = df_carton_merge['Carton (Roll 5 pack)'].astype(str)
+
+            df_merge = pd.concat([matched, matched_11, df_carton_merge], ignore_index=True)
+        else:
+            df_merge = pd.concat([matched, matched_11], ignore_index=True)
+    else:
+        print("Mergeing Failed")
+
+    df_merge = df_merge[original_cols + ['Product_UPC']]
+    df_merge.drop(columns=['Product UPC'], inplace=True)
+    return df_merge
+
+def normalize_week_ending(df):
+    max_date = pd.to_datetime(df['Trans_date']).max()
+    days_to_saturday = (5 - max_date.dayofweek) % 7
+    week_ending = (max_date + pd.Timedelta(days=days_to_saturday)).normalize()
+
+    df['Week_Ending'] = week_ending
+    return df
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
 
@@ -153,8 +227,11 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
     if df_extracted is None:
         print(f"No matching columns found for store '{store_name}' in '{file_name}'")
         return None
-
     print(f"Extracted shape: {df_extracted.shape}")
+
+    df_extracted = product_mapping(df_extracted,mapping_bucket)
+
+    df_extracted = normalize_week_ending(df_extracted)
 
     base_name  = file_name.rsplit('.', 1)[0]
     output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"

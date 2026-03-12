@@ -47,6 +47,27 @@ s3_buckets = {s3_bucket_raw = {
     restrict_public_buckets          = true
     lifecycle_rules                  = []
     intelligent_tiering_configurations = []
+  },
+  s3_product_upc_mapping = {
+    bucket_name                      = "product-upc-mapping"
+    force_destroy                    = false
+    versioning_status                = "Enabled"
+    sse_algorithm                    = "AES256"
+    kms_master_key_id                = null
+    bucket_key_enabled               = false
+    block_public_acls                = true
+    block_public_policy              = true
+    ignore_public_acls               = true
+    restrict_public_buckets          = true
+    lifecycle_rules                  = []
+    intelligent_tiering_configurations = []
+    seed_files                       = {
+      "product_sku_mapping"          = {
+        local_path   = "./src/lookup-data/product-upc/product-upc mapping.csv"
+        s3_key       = "product-sku.csv"
+        content_type = "text/csv"
+      }
+    }
   }
 }
 
