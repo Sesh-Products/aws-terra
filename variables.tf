@@ -19,6 +19,7 @@ variable "COLUMN_CONFIG" {
       "Store"      = "Store"
       "Product"    = "Item"
       "EQ Units"   = "Sale"
+      "Product UPC" = "UPC"
     },
     "qt" = {
       "Trans_date"  = "Trans Date"

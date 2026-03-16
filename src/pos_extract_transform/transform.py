@@ -91,10 +91,14 @@ def melt_bucees(df_raw):
     df_raw         = df_raw.iloc[1:].reset_index(drop=True)
     df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-    first_col = df_raw.columns[0]
-    df_raw.rename(columns={first_col: 'Store'}, inplace=True)
+    
+    cols                = df_raw.columns.tolist()
+    cols[0]             = 'Store'
+    cols[1]             = 'Item'
+    df_raw.columns      = cols
+    print(f"Columns after cleaning: {df_raw.columns.tolist()}")
 
-    id_vars   = ['Store', 'Item']
+    id_vars   = ['Store', 'Item','UPC']
     week_cols = [col for col in df_raw.columns if col not in id_vars]
     print(f"Week columns ({len(week_cols)}): {week_cols[:5]}...")
 
@@ -146,10 +150,10 @@ def extract_columns(df, store_name):
 def product_mapping(df, mapping_bucket):
     original_cols = df.columns.tolist()
 
-    df['Product UPC']                         = df['Product UPC'].astype(str).str.strip()
-    mapping_bucket['Unit (Can Eaches)']       = mapping_bucket['Unit (Can Eaches)'].astype(str).str.strip()
-    mapping_bucket['Master Case (11 Digits)'] = mapping_bucket['Master Case (11 Digits)'].astype(str).str.strip()
-    mapping_bucket['Carton (Roll 5 pack)']    = mapping_bucket['Carton (Roll 5 pack)'].astype(str).str.strip()
+    df['Product UPC']                         = df['Product UPC'].astype(int).astype(str)
+    mapping_bucket['Unit (Can Eaches)']       = mapping_bucket['Unit (Can Eaches)'].astype(str)
+    mapping_bucket['Master Case (11 Digits)'] = mapping_bucket['Master Case (11 Digits)'].astype(str)
+    mapping_bucket['Carton (Roll 5 pack)']    = mapping_bucket['Carton (Roll 5 pack)'].astype(str)
 
     df_merge = df.merge(
         mapping_bucket,
@@ -161,7 +165,7 @@ def product_mapping(df, mapping_bucket):
     matched   = df_merge[df_merge['Unit (Can Eaches)'].notna()].copy()
     unmatched = df_merge[df_merge['Unit (Can Eaches)'].isna()].copy()
 
-    matched['Product_UPC'] = matched['Unit (Can Eaches)'].astype(str)
+    matched['Product_UPC'] = matched['Unit (Can Eaches)']
 
     if not unmatched.empty:
         unmatched = unmatched.drop(columns=mapping_bucket.columns.tolist(), errors='ignore')
@@ -179,7 +183,7 @@ def product_mapping(df, mapping_bucket):
         matched_11   = df_fallback_merge[df_fallback_merge['Master Case (11 Digits)'].notna()].copy()
         unmatched_11 = df_fallback_merge[df_fallback_merge['Master Case (11 Digits)'].isna()].copy()
 
-        matched_11['Product_UPC'] = matched_11['Master Case (11 Digits)'].astype(str)
+        matched_11['Product_UPC'] = matched_11['Master Case (11 Digits)']
 
         if not unmatched_11.empty:
             unmatched_11 = unmatched_11.drop(columns=mapping_bucket.columns.tolist(), errors='ignore')
@@ -191,7 +195,7 @@ def product_mapping(df, mapping_bucket):
                 right_on='Carton (Roll 5 pack)'
             )
 
-            df_carton_merge['Product_UPC'] = df_carton_merge['Carton (Roll 5 pack)'].astype(str)
+            df_carton_merge['Product_UPC'] = df_carton_merge['Carton (Roll 5 pack)']
 
             df_merge = pd.concat([matched, matched_11, df_carton_merge], ignore_index=True)
         else:
@@ -204,9 +208,31 @@ def product_mapping(df, mapping_bucket):
     return df_merge
 
 def normalize_week_ending(df):
-    max_date = pd.to_datetime(df['Trans_date']).max()
-    days_to_saturday = (5 - max_date.dayofweek) % 7
-    week_ending = (max_date + pd.Timedelta(days=days_to_saturday)).normalize()
+    def nearest_saturday(date):
+        day = date.dayofweek
+
+        days_to_prev_sat = day - 5 if day >= 5 else day + 2
+        days_to_next_sat = (5 - day) % 7
+
+        prev_sat = date - pd.Timedelta(days=days_to_prev_sat)
+        next_sat = date + pd.Timedelta(days=days_to_next_sat)
+
+        if (date - prev_sat) <= (next_sat - date):
+            return prev_sat
+        return next_sat
+    
+    def parse_date(val):
+        val         = str(val).strip()
+        # date_format = os.environ.get('DATE_FORMAT')
+        if len(val) == 6 and val.isdigit():
+            return pd.to_datetime(val + '1', format='%Y%W%w')
+
+        return pd.to_datetime(val)
+    if not pd.api.types.is_datetime64_any_dtype(df['Trans_date']):
+        df['Trans_date'] = df['Trans_date'].apply(parse_date)
+
+    max_date    = df['Trans_date'].max()
+    week_ending = nearest_saturday(max_date).normalize()
 
     df['Week_Ending'] = week_ending
     return df
