@@ -16,7 +16,8 @@ variable "COLUMN_CONFIG" {
   default = {
     "buc-ees" = {
       "Trans_date" = "Week Label"
-      "Store"      = "Store"
+      "Store_Code" = "Store_Code"
+      "Store_Name" = "Store_Name"
       "Product"    = "Item"
       "EQ Units"   = "Sale"
       "Product UPC" = "UPC"
@@ -54,6 +55,7 @@ variable "VENDOR_CONFIG" {
     "qt" = {
       "keywords"    = ["qt", "quiktrip"]
       "file_filter" = ["pos"]
+      "missing" = ["EQ Units","3.67"]
     },
     "buc-ees" = {
       "keywords"       = ["buc", "buc-ees", "bucees"]
@@ -162,7 +164,7 @@ variable "lambda_functions" {
     handler                        = optional(string, "index.handler")
     source_file                    = optional(string, "./src/index.py")
     memory_size                    = optional(number, 256)
-    timeout                        = optional(number, 60)
+    timeout                        = optional(number, 120)
     ephemeral_storage_size         = optional(number, null)
     reserved_concurrent_executions = optional(number, -1)
     architectures                  = optional(list(string), ["arm64"])
