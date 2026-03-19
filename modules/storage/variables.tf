@@ -312,3 +312,17 @@ variable "intelligent_tiering_configurations" {
   }))
   default = []
 }
+
+# =============================================================================
+# Seed Data — uploads local files to bucket on terraform apply
+# =============================================================================
+
+variable "seed_files" {
+  description = "Files to upload to the bucket on terraform apply"
+  type = map(object({
+    local_path   = string
+    s3_key       = string
+    content_type = optional(string, "text/csv")
+  }))
+  default = {}
+}

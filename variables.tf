@@ -10,6 +10,71 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "COLUMN_CONFIG" {
+  description = "configurations for segregating columns"
+  type        = map(map(string))
+  default = {
+    "buc-ees" = {
+      "Trans_date" = "Week Label"
+      "Store_Code" = "Store_Code"
+      "Store_Name" = "Store_Name"
+      "Product"    = "Item"
+      "EQ Units"   = "Sale"
+      "Product UPC" = "UPC"
+    },
+    "qt" = {
+      "Trans_date"  = "Trans Date"
+      "Store no"    = "Store No"
+      "Address"     = "Address"
+      "City"        = "City"
+      "County"      = "County"
+      "State"       = "State"
+      "Postal Code" = "Postal Code"
+      "Product UPC" = "Vendor Item #"
+      "Product"     = "Item Description"
+      "Sales"       = "Total Sales Dollars"
+    }
+  }
+}
+
+variable "RAW_BUCKET_EMAIL" {
+  description = "S3 Bucket to save raw data"
+  type        = string
+  default     = "pos-raw-email-bucket"
+}
+variable "TRANSFORMED_BUCKET" {
+  description = "S3 Bucket to save transformed data"
+  type        = string
+  default     = "pos-processed-email-bucket"
+}
+
+variable "VENDOR_CONFIG" {
+  description = "Vendor identification config — keywords and file filters per vendor"
+  type        = any
+  default = {
+    "qt" = {
+      "keywords"    = ["qt", "quiktrip"]
+      "file_filter" = ["pos"]
+      "missing" = {
+        "EQ Units" = ["3.67"]
+        "Store Group" = ["QT"]
+      }
+    },
+    "buc-ees" = {
+      "keywords"       = ["buc", "buc-ees", "bucees"]
+      "subject_filter" = ["sesh weekly report"]
+      "file_filter"    = ["sesh weekly report"]
+      "missing" = {
+        "Store Group" = ["Buc-ee's"]
+      }
+    },
+    "nielsen" = {
+      "keywords"    = ["nielsen", "niq", "rms"]
+      "file_filter" = ["pos"]
+    }
+  }
+}
+
 variable "project" {
   description = "Project name applied as a tag to all resources"
   type        = string
@@ -81,6 +146,11 @@ variable "s3_buckets" {
     restrict_public_buckets          = optional(bool, true)
     lifecycle_rules                  = optional(list(any), [])
     intelligent_tiering_configurations = optional(list(any), [])
+    seed_files                       = optional(map(object({
+      local_path                     = string
+      s3_key                         = string
+      content_type                   = optional(string, "text/csv")
+    })), {})
   }))
   default = {}
 }
@@ -98,9 +168,9 @@ variable "lambda_functions" {
   type = map(object({
     runtime                        = optional(string, "python3.12")
     handler                        = optional(string, "index.handler")
-    source_file                    = optional(string, "./src/index.py")
+    source_file                    = optional(string, "index.py")
     memory_size                    = optional(number, 256)
-    timeout                        = optional(number, 60)
+    timeout                        = optional(number, 120)
     ephemeral_storage_size         = optional(number, null)
     reserved_concurrent_executions = optional(number, -1)
     architectures                  = optional(list(string), ["arm64"])
@@ -113,7 +183,7 @@ variable "lambda_functions" {
   default = {
     api = {
       memory_size = 256
-      timeout     = 60
+      timeout     = 120
       log_level   = "INFO"
     }
   }

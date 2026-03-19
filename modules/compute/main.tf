@@ -31,6 +31,52 @@ data "aws_iam_policy_document" "assume_role" {
   }
 }
 
+data "aws_iam_policy_document" "s3_access" {
+  count = var.create_iam_role && length(var.s3_bucket_arns) > 0 ? 1 : 0
+
+  statement {
+    sid    = "AllowS3Read"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket"
+    ]
+    resources = flatten([
+      for arn in var.s3_bucket_arns : [arn, "${arn}/*"]
+    ])
+  }
+
+  statement {
+    sid    = "AllowS3Write"
+    effect = "Allow"
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject"
+    ]
+    resources = flatten([
+      for arn in var.s3_bucket_arns : ["${arn}/*"]
+    ])
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "s3_access" {    # ← already exists
+  count = var.create_iam_role && length(var.s3_bucket_arns) > 0 ? 1 : 0
+
+  role       = aws_iam_role.lambda[0].name
+  policy_arn = aws_iam_policy.s3_access[0].arn
+}
+
+
+resource "aws_iam_policy" "s3_access" {
+  count = var.create_iam_role && length(var.s3_bucket_arns) > 0 ? 1 : 0
+
+  name   = "${local.role_name}-s3-access"
+  policy = data.aws_iam_policy_document.s3_access[0].json
+
+  tags = var.tags
+}
+
+
 resource "aws_iam_role" "lambda" {
   count = var.create_iam_role ? 1 : 0
 

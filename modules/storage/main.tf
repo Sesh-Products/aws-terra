@@ -318,3 +318,19 @@ resource "aws_s3_bucket_intelligent_tiering_configuration" "this" {
     }
   }
 }
+
+# =============================================================================
+# Seed Data — uploads local files to bucket on terraform apply
+# =============================================================================
+
+resource "aws_s3_object" "seed_files" {
+  for_each = var.seed_files
+
+  bucket       = aws_s3_bucket.this.id
+  key          = each.value.s3_key
+  source       = each.value.local_path
+  etag         = filemd5(each.value.local_path)
+  content_type = each.value.content_type
+
+  tags = var.tags
+}
