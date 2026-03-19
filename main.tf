@@ -83,7 +83,7 @@ data "archive_file" "lambda_zips" {
   for_each = var.lambda_functions
 
   type        = "zip"
-  source_dir = "${path.root}/src/${each.key}"
+  source_dir = "${each.key}"
   output_path = "${path.root}/.builds/${each.key}.zip"
 }
 

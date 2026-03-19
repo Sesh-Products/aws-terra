@@ -244,13 +244,15 @@ def product_mapping(df, mapping_bucket):
     return df_merge
 
 def handle_missing(df,missing):
-    missing_col = missing[0]
-    divisor     = float(missing[1])
+    for col, values in missing.items():
 
-    if missing_col == "EQ Units":
-        df["Sales"]   = pd.to_numeric(df["Sales"], errors='coerce')
-        df["EQ Units"] = (df["Sales"] / divisor).round().astype(int)
+        if col == "EQ Units":
+            divisor = float(values[0])
+            df["Sales"]    = pd.to_numeric(df["Sales"], errors='coerce')
+            df["EQ Units"] = (df["Sales"] / divisor).round().astype(int)
 
+        elif col == "Store Group":
+            df["Store Group"] = values[0]
     # elif missing_col == "Sales":
     #     df["Sales"] = (df["EQ Units"] * divisor).round(2)
     #     print(f"[{store_name}] 'Sales' derived from EQ Units * {divisor}")

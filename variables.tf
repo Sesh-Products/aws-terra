@@ -50,17 +50,23 @@ variable "TRANSFORMED_BUCKET" {
 
 variable "VENDOR_CONFIG" {
   description = "Vendor identification config — keywords and file filters per vendor"
-  type        = map(map(list(string)))
+  type        = any
   default = {
     "qt" = {
       "keywords"    = ["qt", "quiktrip"]
       "file_filter" = ["pos"]
-      "missing" = ["EQ Units","3.67"]
+      "missing" = {
+        "EQ Units" = ["3.67"]
+        "Store Group" = ["QT"]
+      }
     },
     "buc-ees" = {
       "keywords"       = ["buc", "buc-ees", "bucees"]
       "subject_filter" = ["sesh weekly report"]
       "file_filter"    = ["sesh weekly report"]
+      "missing" = {
+        "Store Group" = ["Buc-ee's"]
+      }
     },
     "nielsen" = {
       "keywords"    = ["nielsen", "niq", "rms"]
@@ -162,7 +168,7 @@ variable "lambda_functions" {
   type = map(object({
     runtime                        = optional(string, "python3.12")
     handler                        = optional(string, "index.handler")
-    source_file                    = optional(string, "./src/index.py")
+    source_file                    = optional(string, "index.py")
     memory_size                    = optional(number, 256)
     timeout                        = optional(number, 120)
     ephemeral_storage_size         = optional(number, null)
@@ -177,7 +183,7 @@ variable "lambda_functions" {
   default = {
     api = {
       memory_size = 256
-      timeout     = 60
+      timeout     = 120
       log_level   = "INFO"
     }
   }
