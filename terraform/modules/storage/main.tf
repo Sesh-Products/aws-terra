@@ -1,3 +1,13 @@
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+    snowflake = {
+      source = "Snowflake-Labs/snowflake"
+    }
+  }
+}
 # =============================================================================
 # S3 Bucket
 # =============================================================================
@@ -333,4 +343,257 @@ resource "aws_s3_object" "seed_files" {
   content_type = each.value.content_type
 
   tags = var.tags
+}
+
+# =============================================================================
+# Snowflake Integration
+# =============================================================================
+
+resource "aws_iam_role" "snowflake" {
+  count = var.snowflake_enabled ? 1 : 0
+  name  = var.snowflake_iam_role_name
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::000605313601:root" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = var.tags
+
+  lifecycle {
+    ignore_changes = [assume_role_policy]  # ← Terraform never touches this after creation
+  }
+}
+
+resource "aws_iam_role_policy" "snowflake_s3" {
+  count = var.snowflake_enabled ? 1 : 0
+  name  = "${var.snowflake_iam_role_name}-s3-policy"
+  role  = aws_iam_role.snowflake[0].name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:ListBucket"
+      ]
+      Resource = [
+        "arn:aws:s3:::${var.bucket_name}",
+        "arn:aws:s3:::${var.bucket_name}/*"
+      ]
+    }]
+  })
+}
+
+# =============================================================================
+# SQS Queue for Snowpipe
+# =============================================================================
+
+resource "aws_sqs_queue" "snowpipe" {
+  count                      = var.snowflake_enabled ? 1 : 0
+  name                       = "${var.bucket_name}-snowpipe-queue"
+  visibility_timeout_seconds = 30
+  message_retention_seconds  = 86400
+  tags                       = var.tags
+}
+
+resource "aws_sqs_queue_policy" "snowpipe" {
+  count     = var.snowflake_enabled ? 1 : 0
+  queue_url = aws_sqs_queue.snowpipe[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "s3.amazonaws.com" }
+      Action    = "sqs:SendMessage"
+      Resource  = aws_sqs_queue.snowpipe[0].arn
+      Condition = {
+        ArnLike = {
+          "aws:SourceArn" = "arn:aws:s3:::${var.bucket_name}"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_s3_bucket_notification" "snowpipe" {
+  count  = var.snowflake_enabled ? 1 : 0
+  bucket = aws_s3_bucket.this.id
+
+  queue {
+    queue_arn     = snowflake_pipe.this[0].notification_channel  # ← from pipe output
+    events        = ["s3:ObjectCreated:*"]
+    filter_suffix = ".csv"
+  }
+
+  depends_on = [snowflake_pipe.this]
+}
+
+# =============================================================================
+# Snowflake Storage Integration
+# =============================================================================
+
+resource "snowflake_storage_integration" "this" {
+  count   = var.snowflake_enabled ? 1 : 0
+  name    = var.snowflake_storage_integration_name
+  type    = "EXTERNAL_STAGE"
+  enabled = true
+
+  storage_provider          = "S3"
+  storage_aws_role_arn      = aws_iam_role.snowflake[0].arn
+  storage_allowed_locations = ["s3://${var.bucket_name}/"]
+
+  depends_on = [aws_iam_role.snowflake]
+}
+
+# =============================================================================
+# Snowflake File Format
+# =============================================================================
+
+resource "snowflake_file_format" "csv" {
+  count                          = var.snowflake_enabled ? 1 : 0
+  name                           = var.snowflake_file_format_name
+  database                       = var.snowflake_database
+  schema                         = var.snowflake_schema
+  format_type                    = "CSV"
+  parse_header                   = true
+  field_optionally_enclosed_by   = "\""
+  skip_blank_lines               = true
+  trim_space                     = true
+  error_on_column_count_mismatch = false
+}
+
+# =============================================================================
+# Snowflake Stage
+# =============================================================================
+
+resource "snowflake_stage" "this" {
+  count               = var.snowflake_enabled ? 1 : 0
+  name                = var.snowflake_stage_name
+  database            = var.snowflake_database
+  schema              = var.snowflake_schema
+  url                 = "s3://${var.bucket_name}/"
+  storage_integration = snowflake_storage_integration.this[0].name
+  file_format         = "FORMAT_NAME = \"${var.snowflake_database}\".\"${var.snowflake_schema}\".\"${var.snowflake_file_format_name}\""  # ← quoted for case sensitivity
+
+  depends_on = [snowflake_file_format.csv]
+}
+# =============================================================================
+# Snowflake Pipe
+# =============================================================================
+
+resource "snowflake_pipe" "this" {
+  count       = var.snowflake_enabled ? 1 : 0
+  name        = var.snowflake_pipe_name
+  database    = var.snowflake_database
+  schema      = var.snowflake_schema
+  auto_ingest = true
+
+  copy_statement = <<-EOF
+    COPY INTO "${var.snowflake_database}"."${var.snowflake_schema}"."${var.snowflake_table}"
+    FROM @"${var.snowflake_database}"."${var.snowflake_schema}"."${var.snowflake_stage_name}"
+    FILE_FORMAT = (FORMAT_NAME = '"${var.snowflake_database}"."${var.snowflake_schema}"."${var.snowflake_file_format_name}"')
+    MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
+  EOF
+
+   depends_on = [snowflake_stage.this, terraform_data.snowflake_trust]
+}
+
+
+resource "terraform_data" "snowflake_trust" {
+  count = var.snowflake_enabled ? 1 : 0
+
+  triggers_replace = [
+    snowflake_storage_integration.this[0].storage_aws_iam_user_arn,
+    snowflake_storage_integration.this[0].storage_aws_external_id
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["PowerShell", "-Command"]
+    command     = <<-EOT
+      $iam_user_arn = "${snowflake_storage_integration.this[0].storage_aws_iam_user_arn}"
+      $external_id = "${snowflake_storage_integration.this[0].storage_aws_external_id}"
+      $role_name = "${var.snowflake_iam_role_name}"
+      $file = "trust-policy-$role_name.json"
+
+      $policy = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"' + $iam_user_arn + '"},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"sts:ExternalId":"' + $external_id + '"}}}]}'
+      
+      [System.IO.File]::WriteAllText($file, $policy)
+      
+      aws iam update-assume-role-policy --role-name $role_name --policy-document "file://$file"
+      
+      Remove-Item $file -Force -ErrorAction SilentlyContinue
+
+      Write-Host "Waiting 15 seconds for IAM policy to propagate..."
+      Start-Sleep -Seconds 15  # ← wait for IAM propagation
+    EOT
+  }
+
+  depends_on = [snowflake_storage_integration.this]
+}
+
+# =============================================================================
+# Snowflake Stream
+# =============================================================================
+
+resource "snowflake_stream_on_table" "pos_unified" {
+  count       = var.snowflake_enabled ? 1 : 0
+  name        = var.snowflake_stream_name
+  database    = var.snowflake_database
+  schema      = var.snowflake_schema
+  table       = "${var.snowflake_database}.${var.snowflake_schema}.${var.snowflake_table}"
+  append_only = true
+
+  depends_on = [snowflake_pipe.this]
+}
+# =============================================================================
+# Snowflake Tasks
+# =============================================================================
+
+resource "snowflake_task" "load_pos_backup" {
+  count     = var.snowflake_enabled ? 1 : 0
+  name      = var.snowflake_backup_task_name
+  database  = var.snowflake_database
+  schema    = var.snowflake_task_schema
+  warehouse = "COMPUTE_WH"
+  started   = true
+
+  schedule {
+    minutes = 1
+  }
+
+  sql_statement = templatefile("${path.root}/../src/snowflake/load_pos_backup.sql", {
+    database      = var.snowflake_database
+    schema        = var.snowflake_schema
+    stream_name   = var.snowflake_stream_name
+    backup_schema = var.snowflake_backup_schema
+    dim_schema    = var.snowflake_dim_schema
+  })
+
+  depends_on = [snowflake_stream_on_table.pos_unified]
+}
+
+resource "snowflake_task" "load_fact_pos" {
+  count     = var.snowflake_enabled ? 1 : 0
+  name      = var.snowflake_fact_task_name
+  database  = var.snowflake_database
+  schema    = var.snowflake_task_schema
+  warehouse = "COMPUTE_WH"
+  started   = true  # ← replaces enabled
+  after     = ["${var.snowflake_database}.${var.snowflake_task_schema}.${var.snowflake_backup_task_name}"]
+
+  sql_statement = templatefile("${path.root}/../src/snowflake/load_fact_pos.sql", {
+    database      = var.snowflake_database
+    backup_schema = var.snowflake_backup_schema
+    fact_schema   = var.snowflake_fact_schema
+  })
+
+  depends_on = [snowflake_task.load_pos_backup]
 }

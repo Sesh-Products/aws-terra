@@ -27,18 +27,23 @@ module "secrets" {
   secret_name             = each.value.secret_name
   description             = each.value.description
   kms_key_id              = each.value.kms_key_id
-  secret_string           = each.value.secret_string
   recovery_window_in_days = each.value.recovery_window_in_days
   secret_policy           = each.value.secret_policy
   rotation_lambda_arn     = each.value.rotation_lambda_arn
   rotation_days           = each.value.rotation_days
+
+  secret_string = (
+  each.key == "snowflake_private_key" ? (
+    var.snowflake_private_key_path != null ? file(var.snowflake_private_key_path) : null
+  ) :
+  each.value.secret_string
+)
 
   tags = {
     Environment = var.environment
     Project     = var.project
   }
 }
-
 # =============================================================================
 # S3 Buckets
 # =============================================================================
@@ -60,6 +65,24 @@ module "storage" {
   lifecycle_rules                    = each.value.lifecycle_rules
   intelligent_tiering_configurations = each.value.intelligent_tiering_configurations
   seed_files                         = each.value.seed_files
+
+  snowflake_enabled                  = each.value.snowflake_enabled
+  snowflake_iam_role_name            = each.value.snowflake_iam_role_name
+  snowflake_storage_integration_name = each.value.snowflake_storage_integration_name
+  snowflake_database                 = each.value.snowflake_database
+  snowflake_schema                   = each.value.snowflake_schema
+  snowflake_table                    = each.value.snowflake_table
+  snowflake_stage_name               = each.value.snowflake_stage_name
+  snowflake_pipe_name                = each.value.snowflake_pipe_name
+  snowflake_file_format_name         = each.value.snowflake_file_format_name
+
+  snowflake_stream_name              = each.value.snowflake_stream_name
+  snowflake_task_schema              = each.value.snowflake_task_schema
+  snowflake_backup_schema            = each.value.snowflake_backup_schema
+  snowflake_dim_schema               = each.value.snowflake_dim_schema
+  snowflake_fact_schema              = each.value.snowflake_fact_schema
+  snowflake_backup_task_name         = each.value.snowflake_backup_task_name
+  snowflake_fact_task_name           = each.value.snowflake_fact_task_name
   tags = {
     Environment = var.environment
     Project     = var.project

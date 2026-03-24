@@ -152,6 +152,24 @@ variable "s3_buckets" {
       s3_key                         = string
       content_type                   = optional(string, "text/csv")
     })), {})
+    snowflake_enabled                  = optional(bool, false)
+    snowflake_iam_role_name            = optional(string, null)
+    snowflake_storage_integration_name = optional(string, null)
+    snowflake_database                 = optional(string, null)
+    snowflake_schema                   = optional(string, null)
+    snowflake_table                    = optional(string, null)
+    snowflake_stage_name               = optional(string, null)
+    snowflake_pipe_name                = optional(string, null)
+    snowflake_file_format_name         = optional(string, null)
+    snowflake_iam_user_arn             = optional(string, null)
+    snowflake_external_id              = optional(string, null)
+    snowflake_stream_name              = optional(string, null)
+    snowflake_task_schema              = optional(string, null)
+    snowflake_backup_schema            = optional(string, null)
+    snowflake_dim_schema               = optional(string, null)
+    snowflake_fact_schema              = optional(string, null)
+    snowflake_backup_task_name         = optional(string, null)
+    snowflake_fact_task_name           = optional(string, null)
   }))
   default = {}
 }
@@ -194,4 +212,10 @@ variable "lambda_functions" {
       log_level   = "INFO"
     }
   }
+}
+
+variable "snowflake_private_key_path" {
+  description = "Path to existing RSA private key file"
+  type        = string
+  default     = null
 }

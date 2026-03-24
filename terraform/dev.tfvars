@@ -1,3 +1,6 @@
+# =============================================================================
+# Lambda
+# =============================================================================
 aws_region  = "us-east-1"
 environment  = "dev"
 project= "pos-pipeline"
@@ -45,6 +48,10 @@ lambda_functions = {
   }
 }
 
+# =============================================================================
+# S3
+# =============================================================================
+
 s3_buckets = {s3_bucket_raw = {
     bucket_name                      = "pos-raw-email-bucket"
     force_destroy                    = false
@@ -72,6 +79,23 @@ s3_buckets = {s3_bucket_raw = {
     restrict_public_buckets          = true
     lifecycle_rules                  = []
     intelligent_tiering_configurations = []
+    snowflake_enabled                  = true
+    snowflake_iam_role_name            = "snowflake-pos-email-role"
+    snowflake_storage_integration_name = "pos_s3_integration"
+    snowflake_database                 = "SESH_METADATA"
+    snowflake_schema                   = "STG"
+    snowflake_table                    = "STG_POS_UNIFIED_DEV"
+    snowflake_stage_name               = "pos_unified_stage"
+    snowflake_pipe_name                = "pos_snowpipe"
+    snowflake_file_format_name         = "pos_csv_format_dev"
+    snowflake_stream_name      = "stg_pos_unified_dev_stream"
+    snowflake_task_schema      = "TSK"
+    snowflake_backup_schema    = "BCK"
+    snowflake_dim_schema       = "PUBLIC"
+    snowflake_fact_schema      = "PUBLIC"
+    snowflake_backup_task_name = "load_pos_backup"
+    snowflake_fact_task_name   = "load_fact_pos"
+  
   },
   s3_product_upc_mapping = {
     bucket_name                      = "product-upc-mapping"
@@ -96,4 +120,21 @@ s3_buckets = {s3_bucket_raw = {
   } 
 }
 
-  
+# =============================================================================
+# Secrets
+# =============================================================================
+
+secrets = {
+  snowflake_credentials = {
+    secret_name             = "snowflake/pos-pipeline/dev/credentials"
+    description             = "Snowflake credentials for pos-pipeline"
+    recovery_window_in_days = 0
+    secret_string           = "{\"organization\":\"JNPMQNX\",\"account\":\"VI43165\",\"username\":\"JACKIE\"}"
+  }
+  snowflake_private_key = {
+    secret_name             = "snowflake/pos-pipeline/dev/private-key"
+    description             = "Snowflake RSA private key"
+    recovery_window_in_days = 0
+    secret_string           = null  # ← handled in main.tf via file()
+  }
+}
