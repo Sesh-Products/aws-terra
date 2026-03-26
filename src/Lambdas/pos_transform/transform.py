@@ -9,6 +9,7 @@ import boto3
 import openpyxl
 
 
+
 s3 = boto3.client("s3")
 product_map_bucket = "product-upc-mapping"
 product_map_bucket_key    = "product-sku.csv"
@@ -288,6 +289,30 @@ def normalize_week_ending(df):
 
     df['Week_Ending'] = week_ending
     return df
+def clean_postal_code(df):
+    if 'Postal_Code' not in df.columns:
+        return df
+    
+    def normalize_zip(val):
+        if pd.isna(val) or str(val).strip() == '':
+            return None
+        
+        val = str(val).strip()
+        
+        digits_only = ''.join(filter(str.isdigit, val))
+        
+        if len(digits_only) >= 9:
+            # ZIP+4 format (123456789) → take first 5
+            return digits_only[:5]
+        elif len(digits_only) == 5:
+            # Already 5 digits
+            return digits_only
+        else:
+            return digits_only[:5]
+    
+    df['Postal_Code'] = df['Postal_Code'].apply(normalize_zip)
+    return df
+
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
     vendor_config = VENDOR_CONFIG.get(store_name, {})
@@ -308,14 +333,20 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         return None
     print(f"Extracted shape: {df_extracted.shape}")
 
-    df_extracted = product_mapping(df_extracted,mapping_bucket)
-
+    df_extracted = product_mapping(df_extracted, mapping_bucket)
     df_extracted = normalize_week_ending(df_extracted)
 
-    missing       = vendor_config.get("missing", [])
+    missing = vendor_config.get("missing", [])
     if missing:
-        df_extracted = handle_missing(df_extracted,missing)
+        df_extracted = handle_missing(df_extracted, missing)
 
+    # ← Add this block to clean numeric columns
+    numeric_cols = ["EQ_Units", "Sales", "EQ Units"]
+    for col in numeric_cols:
+        if col in df_extracted.columns:
+            df_extracted[col] = pd.to_numeric(df_extracted[col], errors='coerce').fillna(0)
+    
+    df_extracted = clean_postal_code(df_extracted)
     base_name  = file_name.rsplit('.', 1)[0]
     output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
 

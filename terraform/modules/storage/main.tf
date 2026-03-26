@@ -229,46 +229,69 @@ resource "aws_s3_bucket_policy" "this" {
 # Notifications
 # =============================================================================
 
+locals {
+  # Merge Lambda triggers from notification_configuration + Snowpipe SQS queue into one resource.
+  # AWS only allows a single aws_s3_bucket_notification per bucket.
+  has_notification = var.notification_configuration != null || var.snowflake_enabled
+
+  notification_lambdas = var.notification_configuration != null ? var.notification_configuration.lambda_functions : []
+  notification_queues  = var.notification_configuration != null ? var.notification_configuration.queues : []
+  notification_topics  = var.notification_configuration != null ? var.notification_configuration.topics : []
+}
+
 resource "aws_s3_bucket_notification" "this" {
-  count = var.notification_configuration != null ? 1 : 0
+  count = local.has_notification ? 1 : 0
 
   bucket = aws_s3_bucket.this.id
 
+  # Lambda triggers from notification_configuration
   dynamic "lambda_function" {
-    for_each = var.notification_configuration.lambda_functions
+    for_each = local.notification_lambdas
     content {
       id                  = lambda_function.value.id
       lambda_function_arn = lambda_function.value.lambda_arn
       events              = lambda_function.value.events
-
-      filter_prefix = lambda_function.value.filter_prefix
-      filter_suffix = lambda_function.value.filter_suffix
+      filter_prefix       = lambda_function.value.filter_prefix
+      filter_suffix       = lambda_function.value.filter_suffix
     }
   }
 
+  # SQS queues from notification_configuration
   dynamic "queue" {
-    for_each = var.notification_configuration.queues
+    for_each = local.notification_queues
     content {
-      id        = queue.value.id
-      queue_arn = queue.value.queue_arn
-      events    = queue.value.events
-
+      id            = queue.value.id
+      queue_arn     = queue.value.queue_arn
+      events        = queue.value.events
       filter_prefix = queue.value.filter_prefix
       filter_suffix = queue.value.filter_suffix
     }
   }
 
-  dynamic "topic" {
-    for_each = var.notification_configuration.topics
+  # Snowpipe SQS queue (merged in when snowflake_enabled)
+  dynamic "queue" {
+    for_each = var.snowflake_enabled ? [1] : []
     content {
-      id        = topic.value.id
-      topic_arn = topic.value.topic_arn
-      events    = topic.value.events
+      id            = "snowpipe-queue"
+      queue_arn     = snowflake_pipe.this[0].notification_channel
+      events        = ["s3:ObjectCreated:*"]
+      filter_suffix = ".csv"
+    }
+  }
 
+  # SNS topics from notification_configuration
+  dynamic "topic" {
+    for_each = local.notification_topics
+    content {
+      id            = topic.value.id
+      topic_arn     = topic.value.topic_arn
+      events        = topic.value.events
       filter_prefix = topic.value.filter_prefix
       filter_suffix = topic.value.filter_suffix
     }
   }
+
+  depends_on = [snowflake_pipe.this]
 }
 
 # =============================================================================
@@ -423,18 +446,7 @@ resource "aws_sqs_queue_policy" "snowpipe" {
   })
 }
 
-resource "aws_s3_bucket_notification" "snowpipe" {
-  count  = var.snowflake_enabled ? 1 : 0
-  bucket = aws_s3_bucket.this.id
 
-  queue {
-    queue_arn     = snowflake_pipe.this[0].notification_channel  # ← from pipe output
-    events        = ["s3:ObjectCreated:*"]
-    filter_suffix = ".csv"
-  }
-
-  depends_on = [snowflake_pipe.this]
-}
 
 # =============================================================================
 # Snowflake Storage Integration
@@ -569,7 +581,7 @@ resource "snowflake_task" "load_pos_backup" {
     minutes = 1
   }
 
-  sql_statement = templatefile("${path.root}/../src/snowflake/load_pos_backup.sql", {
+  sql_statement = templatefile("${path.root}/../src/Database/snowflake/tasks/load_pos_backup.sql", {
     database      = var.snowflake_database
     schema        = var.snowflake_schema
     stream_name   = var.snowflake_stream_name
@@ -586,14 +598,10 @@ resource "snowflake_task" "load_fact_pos" {
   database  = var.snowflake_database
   schema    = var.snowflake_task_schema
   warehouse = "COMPUTE_WH"
-  started   = true  # ← replaces enabled
+  started   = true
   after     = ["${var.snowflake_database}.${var.snowflake_task_schema}.${var.snowflake_backup_task_name}"]
 
-  sql_statement = templatefile("${path.root}/../src/snowflake/load_fact_pos.sql", {
-    database      = var.snowflake_database
-    backup_schema = var.snowflake_backup_schema
-    fact_schema   = var.snowflake_fact_schema
-  })
+  sql_statement = "CALL \"${var.snowflake_database}\".\"${var.snowflake_fact_schema}\".\"load_fact_pos_proc\"()"  # ← replace templatefile with this
 
   depends_on = [snowflake_task.load_pos_backup]
 }

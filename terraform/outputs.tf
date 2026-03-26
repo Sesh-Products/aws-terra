@@ -52,3 +52,8 @@ output "lambda_iam_role_arn" {
   description = "ARN of the Lambda execution IAM role for each function"
   value       = { for k, v in module.compute : k => v.iam_role_arn }
 }
+
+output "ec2_instance_ids" {
+  description = "EC2 instance IDs"
+  value       = { for k, v in module.ec2 : k => v.instance_id }
+}

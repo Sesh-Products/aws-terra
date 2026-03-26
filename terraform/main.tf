@@ -7,13 +7,21 @@ module "layer" {
   source   = "./modules/compute/layer"
 
   layer_name               = each.value.layer_name
-  filename                 = each.value.filename
-  source_code_hash         = filebase64sha256(each.value.filename)
+  filename                 = data.archive_file.layer_zips[each.key].output_path        # ← from archive
+  source_code_hash         = data.archive_file.layer_zips[each.key].output_base64sha256 # ← from archive
   description              = each.value.description
   license_info             = each.value.license_info
   compatible_runtimes      = each.value.compatible_runtimes
   compatible_architectures = each.value.compatible_architectures
   skip_destroy             = each.value.skip_destroy
+}
+
+data "archive_file" "layer_zips" {
+  for_each = var.lambda_layers
+
+  type        = "zip"
+  source_dir  = each.value.source_dir
+  output_path = "${path.root}/.builds/${each.key}-layer.zip"
 }
 
 # =============================================================================
@@ -83,6 +91,8 @@ module "storage" {
   snowflake_fact_schema              = each.value.snowflake_fact_schema
   snowflake_backup_task_name         = each.value.snowflake_backup_task_name
   snowflake_fact_task_name           = each.value.snowflake_fact_task_name
+  notification_configuration         = each.value.notification_configuration
+  depends_on                         = [module.compute]
   tags = {
     Environment = var.environment
     Project     = var.project
@@ -105,11 +115,11 @@ module "compute" {
   for_each = var.lambda_functions
   source   = "./modules/compute"
 
-  function_name = "pos_extract_transform-${each.key}-${var.environment}"
+  function_name = coalesce(each.value.function_name, "${each.key}-${var.environment}")
   description   = "Python Lambda function - ${each.key} - ${var.environment} environment"
   runtime       = each.value.runtime
   handler       = each.value.handler
-
+  allowed_triggers = each.value.allowed_triggers
   filename         = data.archive_file.lambda_zips[each.key].output_path
   source_code_hash = data.archive_file.lambda_zips[each.key].output_base64sha256
 
@@ -125,16 +135,43 @@ module "compute" {
   layer_arns = each.value.layer_arns
   additional_policy_statements = each.value.additional_policy_statements
   cloudwatch_log_group_retention_days = each.value.log_retention_days
-
-  environment_variables = {
+  environment_variables = merge(
+  {
     ENVIRONMENT = var.environment
     LOG_LEVEL   = each.value.log_level
-    COLUMN_CONFIG = jsonencode(var.COLUMN_CONFIG)
-    VENDOR_CONFIG = jsonencode(var.VENDOR_CONFIG)
-    RAW_BUCKET_EMAIL = var.RAW_BUCKET_EMAIL
-    TRANSFORMED_BUCKET = var.TRANSFORMED_BUCKET
+  },
+  each.value.extra_environment_variables
+  )
 
+  tags = {
+    Environment = var.environment
+    Project     = var.project
   }
+}
+
+# =============================================================================
+# EC2 — Nielsen Playwright
+# =============================================================================
+
+# =============================================================================
+# EC2
+# =============================================================================
+
+module "ec2" {
+  for_each = var.ec2_instances
+  source   = "./modules/ec2"
+
+  instance_name                = each.value.instance_name
+  environment                  = var.environment
+  instance_type                = each.value.instance_type
+  s3_script_bucket             = each.value.s3_script_bucket
+  s3_script_prefix             = each.value.s3_script_prefix
+  packages                     = each.value.packages
+  pip_packages                 = each.value.pip_packages
+  install_playwright           = each.value.install_playwright
+  startup_script               = each.value.startup_script
+  environment_variables        = each.value.environment_variables
+  additional_policy_statements = each.value.additional_policy_statements
 
   tags = {
     Environment = var.environment

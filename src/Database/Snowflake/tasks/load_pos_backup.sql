@@ -34,15 +34,20 @@ loc_matched AS (
       IFF(c.city_id IS NOT NULL AND c.POSTAL_CODE IS NULL,     'CITY_ONLY ',   '') ||
       IFF(c.state_id   IS NOT NULL,                            'STATE ',       '') ||
       IFF(c.county_id  IS NOT NULL,                            'COUNTY ',      '') ||
-      IFF(c.ADDRESS    IS NOT NULL,                            'ADDRESS ',     '')
+      IFF(c.ADDRESS    IS NOT NULL,                            'ADDRESS ',     '') ||
+      IFF(c.STORE_NAME IS NOT NULL,                            'STORE_NAME ',  '')  -- ← add
     ) AS keys_used
   FROM child_ids c
   LEFT JOIN ${database}.${dim_schema}.dim_location dl
-    ON  dl.store_code::STRING = c.STORE_CODE::STRING
+    ON  (dl.store_code::STRING = c.STORE_CODE::STRING
     AND (c.city_id   IS NULL OR dl.city_id   = c.city_id)
     AND (c.state_id  IS NULL OR dl.state_id  = c.state_id)
     AND (c.county_id IS NULL OR dl.county_id = c.county_id)
-    AND (c.ADDRESS   IS NULL OR UPPER(TRIM(dl.address)) = UPPER(TRIM(c.ADDRESS)))
+    AND (c.ADDRESS   IS NULL OR UPPER(TRIM(dl.address)) = UPPER(TRIM(c.ADDRESS))))
+    OR
+      (c.STORE_NAME IS NOT NULL 
+        AND UPPER(TRIM(dl.loc_name)) = UPPER(TRIM(c.STORE_NAME))
+      )
 ),
 fully_resolved AS (
   SELECT lm.*, p.prod_id

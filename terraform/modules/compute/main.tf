@@ -277,7 +277,7 @@ resource "aws_lambda_permission" "this" {
   principal      = each.value.principal
   source_arn     = each.value.source_arn
   source_account = each.value.source_account
-  qualifier      = coalesce(each.value.qualifier, var.create_alias ? aws_lambda_alias.this[0].name : null)
+  qualifier = try(coalesce(each.value.qualifier, var.create_alias ? aws_lambda_alias.this[0].name : null), null)
 }
 
 # =============================================================================

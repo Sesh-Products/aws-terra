@@ -1,0 +1,1 @@
+CALL "SESH_METADATA"."PUBLIC"."load_fact_pos_proc"();

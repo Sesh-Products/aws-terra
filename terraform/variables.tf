@@ -17,71 +17,6 @@ variable "project" {
   
 }
 
-variable "COLUMN_CONFIG" {
-  description = "configurations for segregating columns"
-  type        = map(map(string))
-  default = {
-    "buc-ees" = {
-      "Trans_date" = "Week Label"
-      "Store_Code" = "Store_Code"
-      "Store_Name" = "Store_Name"
-      "Product"    = "Item"
-      "EQ_Units"   = "Sale"
-      "Product UPC" = "UPC"
-    },
-    "qt" = {
-      "Trans_date"  = "Trans Date"
-      "Store_Code"    = "Store No"
-      "Address"     = "Address"
-      "City"        = "City"
-      "County"      = "County"
-      "State"       = "State"
-      "Postal_Code" = "Postal Code"
-      "Product UPC" = "Vendor Item #"
-      "Product"     = "Item Description"
-      "Sales"       = "Total Sales Dollars"
-    }
-  }
-}
-
-variable "RAW_BUCKET_EMAIL" {
-  description = "S3 Bucket to save raw data"
-  type        = string
-  default     = "pos-raw-email-bucket"
-}
-variable "TRANSFORMED_BUCKET" {
-  description = "S3 Bucket to save transformed data"
-  type        = string
-  default     = "pos-processed-email-bucket"
-}
-
-variable "VENDOR_CONFIG" {
-  description = "Vendor identification config — keywords and file filters per vendor"
-  type        = any
-  default = {
-    "qt" = {
-      "keywords"    = ["qt", "quiktrip"]
-      "file_filter" = ["pos"]
-      "missing" = {
-        "EQ Units" = ["3.67"]
-        "Store" = ["QT"]
-      }
-    },
-    "buc-ees" = {
-      "keywords"       = ["buc", "buc-ees", "bucees"]
-      "subject_filter" = ["sesh weekly report"]
-      "file_filter"    = ["sesh weekly report"]
-      "missing" = {
-        "Store" = ["Buc-ee's"]
-      }
-    },
-    "nielsen" = {
-      "keywords"    = ["nielsen", "niq", "rms"]
-      "file_filter" = ["pos"]
-    }
-  }
-}
-
 # =============================================================================
 # Lambda Layers
 # =============================================================================
@@ -170,6 +105,15 @@ variable "s3_buckets" {
     snowflake_fact_schema              = optional(string, null)
     snowflake_backup_task_name         = optional(string, null)
     snowflake_fact_task_name           = optional(string, null)
+    notification_configuration = optional(object({
+    lambda_functions = optional(list(object({
+      id            = string
+      lambda_arn    = string
+      events        = list(string)
+      filter_prefix = optional(string, null)
+      filter_suffix = optional(string, null)
+    })), [])
+}), null)
   }))
   default = {}
 }
@@ -185,6 +129,7 @@ variable "lambda_functions" {
     All fields are optional and fall back to the stated defaults.
   EOT
   type = map(object({
+    function_name                  = optional(string, null)
     runtime                        = optional(string, "python3.12")
     handler                        = optional(string, "index.handler")
     source_file                    = optional(string, "../src/Lambdas/pos_extract_transform/index.py")
@@ -199,6 +144,17 @@ variable "lambda_functions" {
     log_retention_days             = optional(number, 14)
     log_level                      = optional(string, "INFO")
     layer_arns                     = optional(list(string), [])
+    extra_environment_variables    = optional(map(string), {})
+
+    allowed_triggers = optional(map(object({
+      statement_id   = optional(string)
+      action         = optional(string, "lambda:InvokeFunction")
+      principal      = string
+      source_arn     = optional(string)
+      source_account = optional(string)
+      qualifier      = optional(string)
+    })), {})
+
     additional_policy_statements   = optional(list(object({
       effect    = string
       actions   = list(string)
@@ -218,4 +174,28 @@ variable "snowflake_private_key_path" {
   description = "Path to existing RSA private key file"
   type        = string
   default     = null
+}
+
+# =============================================================================
+# EC2
+# =============================================================================
+
+variable "ec2_instances" {
+  type = map(object({
+    instance_name                = string
+    instance_type                = optional(string, "t4g.nano")
+    s3_script_bucket             = optional(string, "pos-raw-email-bucket")
+    s3_script_prefix             = optional(string, "ec2-scripts")
+    packages                     = optional(list(string), [])
+    pip_packages                 = optional(list(string), [])
+    install_playwright           = optional(bool, false)
+    startup_script               = optional(string, "")
+    environment_variables        = optional(map(string), {})
+    additional_policy_statements = optional(list(object({
+      effect    = string
+      actions   = list(string)
+      resources = list(string)
+    })), [])
+  }))
+  default = {}
 }
