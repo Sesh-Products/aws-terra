@@ -4,7 +4,6 @@
 aws_region  = "us-east-1"
 environment  = "dev"
 project= "pos-pipeline"
-snowflake_private_key_path = "C:\\SESH\\ETL Automation\\snowflake-schema_change\\rsa_key.p8"  # ← add here
 
 lambda_functions = {
   pos_extract  = {
@@ -226,7 +225,7 @@ ec2_instances = {
     pip_packages       = ["boto3"]                
     environment_variables = {
       BYZZER_EMAIL     = "data-ingest@seshproducts.com"
-      BYZZER_PASSWORD  = "DataAdmin2026@sesh"
+      BYZZER_PASSWORD  = "XYZ"
       BYZZER_REPORT    = "Sesh KA & Markets Data Sets (03.14.26) - Tableau 1.0 w/e 03/07/2026"
       RAW_BUCKET_EMAIL = "pos-raw-email-bucket"
     }
