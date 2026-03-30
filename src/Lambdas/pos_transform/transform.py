@@ -7,6 +7,10 @@ import xml.etree.ElementTree as ET
 from io import StringIO, BytesIO
 import boto3
 import openpyxl
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.hazmat.backends import default_backend
+import snowflake.connector
+from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
 
 
 
@@ -17,7 +21,38 @@ product_map_bucket_key    = "product-sku.csv"
 VENDOR_CONFIG = json.loads(os.environ.get("VENDOR_CONFIG", "{}"))
 COLUMN_CONFIG = json.loads(os.environ.get("COLUMN_CONFIG", "{}"))
 response = s3.get_object(Bucket=product_map_bucket, Key=product_map_bucket_key)
-mapping_bucket = df = pd.read_csv(BytesIO(response["Body"].read()))
+mapping_bucket = get_mapping_table()
+
+SNOWFLAKE_ACCOUNT   = os.environ.get("SNOWFLAKE_ACCOUNT")
+SNOWFLAKE_USER      = os.environ.get("SNOWFLAKE_USER")
+SNOWFLAKE_DATABASE  = os.environ.get("SNOWFLAKE_DATABASE", "SESH_METADATA")
+SNOWFLAKE_SCHEMA    = os.environ.get("SNOWFLAKE_SCHEMA", "PUBLIC")
+SNOWFLAKE_WAREHOUSE = os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+SNOWFLAKE_ROLE      = os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN")
+
+def get_private_key():
+    secrets    = boto3.client("secretsmanager")
+    secret     = secrets.get_secret_value(SecretId="snowflake/pos-pipeline/dev/private-key")
+    key_pem    = secret["SecretString"].encode()
+    private_key = load_pem_private_key(key_pem, password=None, backend=default_backend())
+    return private_key
+
+def get_snowflake_connection():
+    private_key = get_private_key()
+    private_key_bytes = private_key.private_bytes(
+        encoding=Encoding.DER,
+        format=PrivateFormat.PKCS8,
+        encryption_algorithm=NoEncryption()
+    )
+    return snowflake.connector.connect(
+        account     = SNOWFLAKE_ACCOUNT,
+        user        = SNOWFLAKE_USER,
+        private_key = private_key_bytes,
+        database    = SNOWFLAKE_DATABASE,
+        schema      = SNOWFLAKE_SCHEMA,
+        warehouse   = SNOWFLAKE_WAREHOUSE,
+        role        = SNOWFLAKE_ROLE
+    )
 
 def fix_xlsx(body_bytes):
     input_buf  = BytesIO(body_bytes)
@@ -54,23 +89,27 @@ def fix_xlsx(body_bytes):
     return output_buf
 
 
-def read_file(body_bytes, file_name):
-    if body_bytes[:4] == b'\xD0\xCF\x11\xE0':
-        print("Detected format: XLS (binary)")
+def read_file(body_bytes, s3_key):
+    _, ext = os.path.splitext(s3_key)
+    ext    = ext.lstrip(".").lower()
+    print(f"Reading file as '{ext}' (derived from S3 key: {s3_key})")
+ 
+    if ext == "xls":
         return pd.read_excel(BytesIO(body_bytes), header=None, engine='xlrd')
-
-    elif body_bytes[:2] == b'PK':
-        print("Detected format: XLSX (zip)")
+ 
+    elif ext == "xlsx":
         try:
             return pd.read_excel(BytesIO(body_bytes), header=None, engine='openpyxl')
         except Exception as e:
             print(f"openpyxl failed: {e} — attempting relationship fix...")
             fixed = fix_xlsx(body_bytes)
             return pd.read_excel(fixed, header=None, engine='openpyxl')
-
+ 
+    elif ext == "csv":
+        return pd.read_csv(StringIO(body_bytes.decode("utf-8")), header=None)
+ 
     else:
-        print("Detected format: CSV")
-        return pd.read_csv(StringIO(body_bytes.decode('utf-8')), header=None)
+        raise ValueError(f"Unsupported file type: '.{ext}' (key: {s3_key})")
     
 def find_header_row(df_raw, max_rows=50):
     rows = []
@@ -99,27 +138,8 @@ def find_header_row(df_raw, max_rows=50):
 
     return data_start - 1
 
-# def find_header_row(df_raw, expected_columns):
-#     expected_lower = [col.lower() for col in expected_columns]
-#     best_row, best_score = 0, 0
-
-#     for i, row in df_raw.iterrows():
-#         row_values = [str(v).strip().lower() for v in row.values]
-#         score = sum(1 for col in expected_lower if col in row_values)
-#         if score > best_score:
-#             best_score = score
-#             best_row   = i
-
-#     print(f"Header detected at row {best_row} with {best_score} matching columns")
-#     return best_row
-
 
 def melt_bucees(df_raw):
-    # header_row     = find_header_row(df_raw)
-    # df_raw         = df_raw.iloc[header_row:].reset_index(drop=True)
-    # df_raw.columns = df_raw.iloc[0].values
-    # df_raw         = df_raw.iloc[1:].reset_index(drop=True)
-    # df_raw.columns = [str(c).strip() for c in df_raw.columns]
     df_raw.columns = [str(c).strip() for c in df_raw.columns]
     print(f"Columns after cleaning: {df_raw.columns.tolist()}")
 
@@ -184,64 +204,68 @@ def extract_columns(df, store_name):
     df_extracted.rename(columns=rename_map, inplace=True)
     return df_extracted
 
-def product_mapping(df, mapping_bucket):
-    original_cols = df.columns.tolist()
+def get_mapping_table():
+    """Read product mapping from Snowflake dim_product"""
+    conn = get_snowflake_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT PROD_ID, PROD_NAME, UPC, FLAVOUR, STRENGTH
+            FROM SESH_METADATA.PUBLIC.dim_product
+        """)
+        df = pd.DataFrame(
+            cursor.fetchall(), 
+            columns=[col[0] for col in cursor.description]
+        )
+        return df
+    finally:
+        conn.close()
 
-    df['Product UPC']                         = df['Product UPC'].astype(float).astype(int).astype(str)
-    mapping_bucket['Unit (Can Eaches)']       = mapping_bucket['Unit (Can Eaches)'].astype(str)
-    mapping_bucket['Master Case (11 Digits)'] = mapping_bucket['Master Case (11 Digits)'].astype(str)
-    mapping_bucket['Carton (Roll 5 pack)']    = mapping_bucket['Carton (Roll 5 pack)'].astype(str)
+def product_mapping(df, mapping_df):
+    """Match Product UPC to dim_product and return PROD_ID"""
+    
+    # Normalize UPC columns
+    df['Product UPC'] = df['Product UPC'].astype(str).str.strip()
+    mapping_df['UPC'] = mapping_df['UPC'].astype(str).str.strip()
 
+    # Direct match on full UPC
     df_merge = df.merge(
-        mapping_bucket,
+        mapping_df[['PROD_ID', 'UPC']],
         how='left',
         left_on='Product UPC',
-        right_on='Unit (Can Eaches)'
+        right_on='UPC'
     )
 
-    matched   = df_merge[df_merge['Unit (Can Eaches)'].notna()].copy()
-    unmatched = df_merge[df_merge['Unit (Can Eaches)'].isna()].copy()
+    matched   = df_merge[df_merge['PROD_ID'].notna()].copy()
+    unmatched = df_merge[df_merge['PROD_ID'].isna()].copy()
 
-    matched['Product_UPC'] = matched['Unit (Can Eaches)']
+    print(f"Direct match: {len(matched)} matched, {len(unmatched)} unmatched")
 
+    # Fallback — match on first 11 digits
     if not unmatched.empty:
-        unmatched = unmatched.drop(columns=mapping_bucket.columns.tolist(), errors='ignore')
-
+        unmatched = unmatched.drop(columns=['PROD_ID', 'UPC'], errors='ignore')
         unmatched['product_11'] = unmatched['Product UPC'].astype(str).str[:11]
+        mapping_df['UPC_11'] = mapping_df['UPC'].astype(str).str[:11]
 
-        df_fallback_merge = unmatched.merge(
-            mapping_bucket,
+        df_fallback = unmatched.merge(
+            mapping_df[['PROD_ID', 'UPC_11']],
             how='left',
             left_on='product_11',
-            right_on='Master Case (11 Digits)'
+            right_on='UPC_11'
         )
-        df_fallback_merge.drop(columns=['product_11'], inplace=True)
+        df_fallback.drop(columns=['product_11', 'UPC_11'], inplace=True)
 
-        matched_11   = df_fallback_merge[df_fallback_merge['Master Case (11 Digits)'].notna()].copy()
-        unmatched_11 = df_fallback_merge[df_fallback_merge['Master Case (11 Digits)'].isna()].copy()
+        matched_11   = df_fallback[df_fallback['PROD_ID'].notna()].copy()
+        unmatched_11 = df_fallback[df_fallback['PROD_ID'].isna()].copy()
 
-        matched_11['Product_UPC'] = matched_11['Master Case (11 Digits)']
+        print(f"11-digit fallback: {len(matched_11)} matched, {len(unmatched_11)} unmatched")
 
-        if not unmatched_11.empty:
-            unmatched_11 = unmatched_11.drop(columns=mapping_bucket.columns.tolist(), errors='ignore')
+        df_merge = pd.concat([matched, matched_11, unmatched_11], ignore_index=True)
+    
+    # Rename Product UPC to Product_UPC for consistency
+    df_merge['Product_UPC'] = df_merge['Product UPC']
+    df_merge.drop(columns=['Product UPC', 'UPC'], inplace=True, errors='ignore')
 
-            df_carton_merge = unmatched_11.merge(
-                mapping_bucket,
-                how='left',
-                left_on='Product UPC',
-                right_on='Carton (Roll 5 pack)'
-            )
-
-            df_carton_merge['Product_UPC'] = df_carton_merge['Carton (Roll 5 pack)']
-
-            df_merge = pd.concat([matched, matched_11, df_carton_merge], ignore_index=True)
-        else:
-            df_merge = pd.concat([matched, matched_11], ignore_index=True)
-    else:
-        print("Mergeing Failed")
-
-    df_merge = df_merge[original_cols + ['Product_UPC']]
-    df_merge.drop(columns=['Product UPC'], inplace=True)
     return df_merge
 
 def handle_missing(df,missing):

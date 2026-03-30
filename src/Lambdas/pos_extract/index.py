@@ -17,6 +17,12 @@ def norm(s):
 def score_vendor(cfg, from_addr, reply_to, subject, body, attachments):
     score = 0
     keywords = cfg.get("keywords", [])
+    from_emails = cfg.get("from_email", [])
+
+    for email in from_emails:
+        if email.lower() in from_addr:
+            score += 3
+
     for k in keywords:
         if k in from_addr: score += 1
         if k in reply_to: score += 1
