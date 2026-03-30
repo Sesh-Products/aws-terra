@@ -1,6 +1,3 @@
-byzzer_email    = "data-ingest@seshproducts.com"
-byzzer_password = "DataAdmin2026@sesh"
-byzzer_report   = "Sesh KA & Markets Data Sets (03.14.26) - Tableau 1.0 w/e 03/07/2026"
 
 # =============================================================================
 # Lambda
