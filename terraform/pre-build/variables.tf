@@ -39,8 +39,9 @@ variable "secrets" {
   default = {}
 }
 
-variable "snowflake_private_key_path" {
-  description = "Path to existing RSA private key file"
+variable "snowflake_private_key" {
+  description = "RSA private key content for Snowflake"
   type        = string
+  sensitive   = true
   default     = null
 }

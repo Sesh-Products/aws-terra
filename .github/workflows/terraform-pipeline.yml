@@ -74,9 +74,9 @@ jobs:
           terraform plan \
             -input=false \
             -var-file="dev.tfvars" \
-            -var="snowflake_private_key_path=${{ runner.temp }}/snowflake_key.p8" \
             -out=pre-build.tfplan
         env:
+          TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
           # Override the secret_string values with GitHub Secrets to avoid
           # committing credentials in dev.tfvars
           TF_VAR_secrets: |
@@ -91,7 +91,7 @@ jobs:
                 "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
                 "description": "Snowflake RSA private key",
                 "recovery_window_in_days": 0,
-                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
+                "secret_string": null
               }
             }
 
