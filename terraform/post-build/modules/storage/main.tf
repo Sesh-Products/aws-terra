@@ -8,6 +8,8 @@ terraform {
     }
   }
 }
+
+data "aws_caller_identity" "current" {}
 # =============================================================================
 # S3 Bucket
 # =============================================================================
@@ -380,7 +382,7 @@ resource "aws_iam_role" "snowflake" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { AWS = "arn:aws:iam::000605313601:root" }
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
       Action    = "sts:AssumeRole"
     }]
   })
