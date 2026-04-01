@@ -15,14 +15,9 @@ from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat
 
 
 s3 = boto3.client("s3")
-product_map_bucket = "product-upc-mapping"
-product_map_bucket_key    = "product-sku.csv"
 
 VENDOR_CONFIG = json.loads(os.environ.get("VENDOR_CONFIG", "{}"))
 COLUMN_CONFIG = json.loads(os.environ.get("COLUMN_CONFIG", "{}"))
-response = s3.get_object(Bucket=product_map_bucket, Key=product_map_bucket_key)
-mapping_bucket = get_mapping_table()
-
 SNOWFLAKE_ACCOUNT   = os.environ.get("SNOWFLAKE_ACCOUNT")
 SNOWFLAKE_USER      = os.environ.get("SNOWFLAKE_USER")
 SNOWFLAKE_DATABASE  = os.environ.get("SNOWFLAKE_DATABASE", "SESH_METADATA")
@@ -222,49 +217,126 @@ def get_mapping_table():
         conn.close()
 
 def product_mapping(df, mapping_df):
-    """Match Product UPC to dim_product and return PROD_ID"""
-    
-    # Normalize UPC columns
+    df = df.drop(columns=['PROD_ID', 'Prod_id', 'prod_id'], errors='ignore')
     df['Product UPC'] = df['Product UPC'].astype(str).str.strip()
     mapping_df['UPC'] = mapping_df['UPC'].astype(str).str.strip()
 
-    # Direct match on full UPC
-    df_merge = df.merge(
+    # ── Match 1: Full UPC ────────────────────────────────────────────────────
+    df_merge  = df.merge(
         mapping_df[['PROD_ID', 'UPC']],
         how='left',
         left_on='Product UPC',
         right_on='UPC'
     )
-
     matched   = df_merge[df_merge['PROD_ID'].notna()].copy()
     unmatched = df_merge[df_merge['PROD_ID'].isna()].copy()
+    print(f"Full UPC match: {len(matched)} matched, {len(unmatched)} unmatched")
 
-    print(f"Direct match: {len(matched)} matched, {len(unmatched)} unmatched")
-
-    # Fallback — match on first 11 digits
+    # ── Match 2: Mapping UPC minus last char ─────────────────────────────────
     if not unmatched.empty:
         unmatched = unmatched.drop(columns=['PROD_ID', 'UPC'], errors='ignore')
-        unmatched['product_11'] = unmatched['Product UPC'].astype(str).str[:11]
-        mapping_df['UPC_11'] = mapping_df['UPC'].astype(str).str[:11]
+
+        mapping_12           = mapping_df.copy()
+        mapping_12['UPC_12'] = mapping_12['UPC'].astype(str).str[:-1].str[-12:]
+        mapping_12           = mapping_12.drop_duplicates(subset=['UPC_12'])
 
         df_fallback = unmatched.merge(
-            mapping_df[['PROD_ID', 'UPC_11']],
+            mapping_12[['PROD_ID', 'UPC_12']],
             how='left',
-            left_on='product_11',
-            right_on='UPC_11'
+            left_on='Product UPC',
+            right_on='UPC_12'
         )
-        df_fallback.drop(columns=['product_11', 'UPC_11'], inplace=True)
+        df_fallback.drop(columns=['UPC_12'], inplace=True)
 
-        matched_11   = df_fallback[df_fallback['PROD_ID'].notna()].copy()
-        unmatched_11 = df_fallback[df_fallback['PROD_ID'].isna()].copy()
+        matched_12   = df_fallback[df_fallback['PROD_ID'].notna()].copy()
+        unmatched_12 = df_fallback[df_fallback['PROD_ID'].isna()].copy()
+        print(f"Mapping -1 char match: {len(matched_12)} matched, {len(unmatched_12)} unmatched")
 
-        print(f"11-digit fallback: {len(matched_11)} matched, {len(unmatched_11)} unmatched")
+        # ── Match 3: Last 12 digits of mapping UPC ───────────────────────────
+        if not unmatched_12.empty:
+            unmatched_12 = unmatched_12.drop(columns=['PROD_ID', 'UPC'], errors='ignore')
 
-        df_merge = pd.concat([matched, matched_11, unmatched_11], ignore_index=True)
-    
-    # Rename Product UPC to Product_UPC for consistency
+            mapping_last12            = mapping_df.copy()
+            mapping_last12['UPC_L12'] = mapping_last12['UPC'].astype(str).str[-12:]
+            mapping_last12            = mapping_last12.drop_duplicates(subset=['UPC_L12'])
+
+            df_fallback2 = unmatched_12.merge(
+                mapping_last12[['PROD_ID', 'UPC_L12']],
+                how='left',
+                left_on='Product UPC',
+                right_on='UPC_L12'
+            )
+            df_fallback2.drop(columns=['UPC_L12'], inplace=True)
+
+            matched_last12   = df_fallback2[df_fallback2['PROD_ID'].notna()].copy()
+            unmatched_last12 = df_fallback2[df_fallback2['PROD_ID'].isna()].copy()
+            print(f"Last 12-digit mapping match: {len(matched_last12)} matched, {len(unmatched_last12)} unmatched")
+
+            # ── Match 4: Remove last digit from mapping UPC only ─────────────
+            if not unmatched_last12.empty:
+                unmatched_last12 = unmatched_last12.drop(columns=['PROD_ID', 'UPC'], errors='ignore')
+
+                mapping_rm1            = mapping_df.copy()
+                mapping_rm1['UPC_RM1'] = mapping_rm1['UPC'].astype(str).str[:-1]
+                mapping_rm1            = mapping_rm1.drop_duplicates(subset=['UPC_RM1'])
+
+                # Convert input UPC to int before joining
+                unmatched_last12['UPC_INT'] = unmatched_last12['Product UPC'].apply(
+                    lambda x: str(int(float(x))) if pd.notna(x) and str(x).replace('.','').isdigit() else str(x)
+                )
+
+                df_fallback3 = unmatched_last12.merge(
+                    mapping_rm1[['PROD_ID', 'UPC_RM1']],
+                    how='left',
+                    left_on='UPC_INT',
+                    right_on='UPC_RM1'
+                )
+                df_fallback3.drop(columns=['UPC_RM1', 'UPC_INT'], inplace=True)
+
+                matched_rm1   = df_fallback3[df_fallback3['PROD_ID'].notna()].copy()
+                unmatched_rm1 = df_fallback3[df_fallback3['PROD_ID'].isna()].copy()
+                print(f"Mapping -1 digit match: {len(matched_rm1)} matched, {len(unmatched_rm1)} unmatched")
+
+                # ── Match 5: Full UPC after converting to int ─────────────────
+                if not unmatched_rm1.empty:
+                    unmatched_rm1 = unmatched_rm1.drop(columns=['PROD_ID', 'UPC'], errors='ignore')
+
+                    # Convert both to int string before joining
+                    unmatched_rm1['UPC_INT'] = unmatched_rm1['Product UPC'].apply(
+                        lambda x: str(int(float(x))) if pd.notna(x) and str(x).replace('.','').isdigit() else str(x)
+                    )
+                    mapping_int           = mapping_df.copy()
+                    mapping_int['UPC_INT'] = mapping_int['UPC'].apply(
+                        lambda x: str(int(float(x))) if pd.notna(x) and str(x).replace('.','').isdigit() else str(x)
+                    )
+                    mapping_int = mapping_int.drop_duplicates(subset=['UPC_INT'])
+
+                    df_fallback4 = unmatched_rm1.merge(
+                        mapping_int[['PROD_ID', 'UPC_INT']],
+                        how='left',
+                        left_on='UPC_INT',
+                        right_on='UPC_INT'
+                    )
+                    df_fallback4.drop(columns=['UPC_INT'], inplace=True)
+
+                    matched_int   = df_fallback4[df_fallback4['PROD_ID'].notna()].copy()
+                    unmatched_int = df_fallback4[df_fallback4['PROD_ID'].isna()].copy()
+                    print(f"Full UPC int match: {len(matched_int)} matched, {len(unmatched_int)} unmatched")
+
+                    df_merge = pd.concat([matched, matched_12, matched_last12, matched_rm1, matched_int, unmatched_int], ignore_index=True)
+                else:
+                    df_merge = pd.concat([matched, matched_12, matched_last12, matched_rm1, unmatched_rm1], ignore_index=True)
+            else:
+                df_merge = pd.concat([matched, matched_12, matched_last12, unmatched_last12], ignore_index=True)
+    else:
+        df_merge = matched.copy()
+
+    # Rename Product UPC for consistency
     df_merge['Product_UPC'] = df_merge['Product UPC']
     df_merge.drop(columns=['Product UPC', 'UPC'], inplace=True, errors='ignore')
+
+    # Clean PROD_ID
+    df_merge['PROD_ID'] = pd.to_numeric(df_merge['PROD_ID'], errors='coerce').fillna(0).astype(int)
 
     return df_merge
 
@@ -313,6 +385,7 @@ def normalize_week_ending(df):
 
     df['Week_Ending'] = week_ending
     return df
+
 def clean_postal_code(df):
     if 'Postal_Code' not in df.columns:
         return df
@@ -340,6 +413,7 @@ def clean_postal_code(df):
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
     vendor_config = VENDOR_CONFIG.get(store_name, {})
+    mapping_bucket = get_mapping_table()
 
     if not COLUMN_CONFIG or store_name not in COLUMN_CONFIG:
         print(f"No COLUMN_CONFIG entry for store '{store_name}' — skipping transform.")

@@ -25,6 +25,11 @@ lambda_functions = {
     additional_policy_statements = [
     {
       effect    = "Allow"
+      actions   = ["lambda:InvokeFunction"]
+      resources = ["arn:aws:lambda:us-east-1:000605313601:function:ses-ec2-trigger-dev"]
+    },
+    {
+      effect    = "Allow"
       actions   = ["s3:GetObject"]
       resources = ["arn:aws:s3:::product-upc-mapping/*"]
     },
@@ -47,6 +52,8 @@ lambda_functions = {
       ]
     }]
     extra_environment_variables = {
+    NIELSEN_FROM_EMAIL = "byzzer.services@smb.nielseniq.com"
+    EC2_TRIGGER_LAMBDA = "ses-ec2-trigger-dev"
     RAW_BUCKET_EMAIL   = "pos-raw-email-bucket"
     VENDOR_CONFIG = "{\"qt\":{\"keywords\":[\"qt\",\"quiktrip\"],\"file_filter\":[\"pos\"],\"from_email\":[\"drake@seshproducts.com\"],\"missing\":{\"EQ Units\":[\"3.67\"],\"Store\":[\"QT\"]}},\"buc-ees\":{\"keywords\":[\"buc\",\"buc-ees\",\"bucees\"],\"subject_filter\":[\"sesh weekly report\"],\"file_filter\":[\"sesh weekly report\"],\"from_email\":[\"data@seshproducts.com\",\"brandon\"],\"missing\":{\"Store\":[\"Buc-ee's\"]}},\"nielsen\":{\"keywords\":[\"nielsen\",\"niq\",\"rms\"],\"file_filter\":[\"pos\"],\"from_email\":[\"byzzer.services@smb.nielseniq.com\"]}}"
     }
@@ -92,6 +99,14 @@ lambda_functions = {
         "arn:aws:s3:::pos-processed-email-bucket",
       "arn:aws:s3:::pos-processed-email-bucket/*"
       ]
+    },
+    {
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [
+        "arn:aws:secretsmanager:us-east-1:000605313601:secret:snowflake/pos-pipeline/dev/private-key*",
+        "arn:aws:secretsmanager:us-east-1:000605313601:secret:snowflake/pos-pipeline/dev/credentials*"
+      ]
     }]
     extra_environment_variables = {
     TRANSFORMED_BUCKET  = "pos-processed-email-bucket"
@@ -108,9 +123,39 @@ lambda_functions = {
       principal  = "s3.amazonaws.com"
       source_arn = "arn:aws:s3:::pos-raw-email-bucket"
     }
-  } 
+    }
+  },
+  ses_ec2_trigger = {
+  function_name  = "ses-ec2-trigger-dev"
+  source_dir     = "../../src/Lambdas/ses_ec2_trigger_dev"
+  runtime        = "python3.12"
+  handler        = "index.handler"
+  memory_size    = 128
+  timeout        = 30
+  architectures  = ["arm64"]
+  publish        = true
+  create_alias   = false
+  log_retention_days = 14
+  log_level      = "INFO"
+  layer_arns     = []
+  extra_environment_variables = {
+    EC2_INSTANCE_NAME = "nielsen-playwright-dev"
   }
-}
+  additional_policy_statements = [
+    {
+      effect    = "Allow"
+      actions   = ["ssm:SendCommand", "ssm:GetCommandInvocation"]
+      resources = ["*"]
+    },
+    {
+      effect    = "Allow"
+      actions   = ["ec2:DescribeInstances"]
+      resources = ["*"]
+    }
+  ]
+  }
+  }
+
 
 # =============================================================================
 # S3
@@ -146,6 +191,8 @@ s3_buckets = {s3_bucket_raw = {
         filter_suffix = null
       }
     ]}
+
+    bucket_policy = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowSESPuts\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ses.amazonaws.com\"},\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::pos-raw-email-bucket/*\"}]}"
   },
   s3_bucket_transformed = {
     bucket_name                      = "pos-processed-email-bucket"
@@ -212,8 +259,7 @@ ec2_instances = {
     s3_script_bucket   = "pos-raw-email-bucket"
     s3_script_prefix   = "ec2-scripts/nielsen"
     install_playwright = true                    
-    pip_packages       = ["boto3"]                
-
+    pip_packages       = ["boto3"]               
     additional_policy_statements = [
       {
         effect  = "Allow"

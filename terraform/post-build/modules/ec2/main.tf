@@ -109,13 +109,22 @@ resource "aws_instance" "this" {
   instance_type               = var.instance_type
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
   associate_public_ip_address = var.associate_public_ip
+  
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
 
   user_data = <<-EOF
   #!/bin/bash
   set -e
 
   # Install system packages
-  dnf install -y python3.12 python3.12-pip ${local.dnf_packages} ${local.playwright_deps}
+  dnf install -y python3.12 python3.12-pip amazon-ssm-agent ${local.dnf_packages} ${local.playwright_deps}
+
+  # Start and enable SSM agent
+  systemctl enable amazon-ssm-agent
+  systemctl start amazon-ssm-agent
 
   # Set environment variables
   ${local.env_exports}
@@ -134,7 +143,7 @@ resource "aws_instance" "this" {
 
   # Additional startup commands
   ${var.startup_script}
-  EOF
+EOF
 
 
   tags = merge(var.tags, {
