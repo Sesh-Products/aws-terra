@@ -312,3 +312,100 @@ variable "intelligent_tiering_configurations" {
   }))
   default = []
 }
+# =============================================================================
+# Seed Data — uploads local files to bucket on terraform apply
+# =============================================================================
+
+variable "seed_files" {
+  description = "Files to upload to the bucket on terraform apply"
+  type = map(object({
+    local_path   = string
+    s3_key       = string
+    content_type = optional(string, "text/csv")
+  }))
+  default = {}
+}
+
+# =============================================================================
+# Snowflake
+# =============================================================================
+
+variable "snowflake_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "snowflake_iam_role_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_storage_integration_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_database" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_table" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_stage_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_pipe_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_file_format_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_stream_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_task_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_backup_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_dim_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_fact_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_backup_task_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_fact_task_name" {
+  type    = string
+  default = null
+}

@@ -277,5 +277,27 @@ resource "aws_lambda_permission" "this" {
   principal      = each.value.principal
   source_arn     = each.value.source_arn
   source_account = each.value.source_account
-  qualifier      = coalesce(each.value.qualifier, var.create_alias ? aws_lambda_alias.this[0].name : null)
+  qualifier = try(coalesce(each.value.qualifier, var.create_alias ? aws_lambda_alias.this[0].name : null), null)
+}
+
+# =============================================================================
+# Additional IAM Role Policy
+# =============================================================================
+
+resource "aws_iam_role_policy" "additional" {
+  count = length(var.additional_policy_statements) > 0 ? 1 : 0
+
+  name = "${local.role_name}-additional-policy"
+  role = aws_iam_role.lambda[0].name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      for stmt in var.additional_policy_statements : {
+        Effect   = stmt.effect
+        Action   = stmt.actions
+        Resource = stmt.resources
+      }
+    ]
+  })
 }

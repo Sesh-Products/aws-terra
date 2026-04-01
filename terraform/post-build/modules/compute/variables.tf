@@ -194,6 +194,16 @@ variable "attach_vpc_policy" {
   default     = false
 }
 
+variable "additional_policy_statements" {
+  description = "List of additional IAM policy statements to attach to the Lambda execution role."
+  type = list(object({
+    effect    = string
+    actions   = list(string)
+    resources = list(string)
+  }))
+  default = []
+}
+
 # =============================================================================
 # Environment Variables
 # =============================================================================
