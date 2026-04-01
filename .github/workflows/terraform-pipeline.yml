@@ -3,7 +3,7 @@ name: Terraform Pipeline
 on:
   push:
     branches:
-      - test-terraform
+      - main
   pull_request:
   workflow_dispatch:
     inputs:
