@@ -2,7 +2,7 @@ terraform {
   required_version = ">= 1.9.0"
 
   backend "s3" {
-    bucket = "pos-pipeline"
+    bucket = "pos-pipeline-tf-state"
     key    = "post-build/terraform.tfstate"
     region = "us-east-1"
   }
