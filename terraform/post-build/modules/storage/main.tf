@@ -528,23 +528,21 @@ resource "terraform_data" "snowflake_trust" {
   ]
 
   provisioner "local-exec" {
-    interpreter = ["PowerShell", "-Command"]
+    interpreter = ["bash", "-c"]
     command     = <<-EOT
-      $iam_user_arn = "${snowflake_storage_integration.this[0].storage_aws_iam_user_arn}"
-      $external_id = "${snowflake_storage_integration.this[0].storage_aws_external_id}"
-      $role_name = "${var.snowflake_iam_role_name}"
-      $file = "trust-policy-$role_name.json"
+      IAM_USER_ARN="${snowflake_storage_integration.this[0].storage_aws_iam_user_arn}"
+      EXTERNAL_ID="${snowflake_storage_integration.this[0].storage_aws_external_id}"
+      ROLE_NAME="${var.snowflake_iam_role_name}"
 
-      $policy = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"' + $iam_user_arn + '"},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"sts:ExternalId":"' + $external_id + '"}}}]}'
-      
-      [System.IO.File]::WriteAllText($file, $policy)
-      
-      aws iam update-assume-role-policy --role-name $role_name --policy-document "file://$file"
-      
-      Remove-Item $file -Force -ErrorAction SilentlyContinue
+      POLICY=$(cat <<EOF
+      {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"$IAM_USER_ARN"},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"sts:ExternalId":"$EXTERNAL_ID"}}}]}
+      EOF
+      )
 
-      Write-Host "Waiting 15 seconds for IAM policy to propagate..."
-      Start-Sleep -Seconds 15  # ← wait for IAM propagation
+      aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document "$POLICY"
+
+      echo "Waiting 15 seconds for IAM policy to propagate..."
+      sleep 15
     EOT
   }
 
@@ -578,7 +576,7 @@ resource "snowflake_task" "load_pos_backup" {
   started   = true
 
   schedule {
-    minutes = 1
+    minutes = 2
   }
 
   sql_statement = templatefile("${path.root}/../../src/Database/snowflake/tasks/load_pos_backup.sql", {

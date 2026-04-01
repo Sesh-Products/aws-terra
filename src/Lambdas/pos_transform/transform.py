@@ -13,7 +13,6 @@ import snowflake.connector
 from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
 
 
-
 s3 = boto3.client("s3")
 
 VENDOR_CONFIG = json.loads(os.environ.get("VENDOR_CONFIG", "{}"))

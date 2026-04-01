@@ -238,13 +238,6 @@ s3_buckets = {s3_bucket_raw = {
     restrict_public_buckets          = true
     lifecycle_rules                  = []
     intelligent_tiering_configurations = []
-    seed_files                       = {
-      "product_sku_mapping"          = {
-        local_path   = "../../src/Lookup Data/product-upc mapping.csv"
-        s3_key       = "product-sku.csv"
-        content_type = "text/csv"
-      }
-    }
   } 
 }
 
@@ -270,18 +263,5 @@ ec2_instances = {
         ]
       }
     ]
-  }
-}
-# =============================================================================
-# Layers
-# =============================================================================
-lambda_layers = {
-  snowflake = {
-    layer_name               = "snowflake-connector-layer"
-    source_dir               = "../../src/Layers/snowflake"
-    description              = "Snowflake connector and cryptography"
-    compatible_runtimes      = ["python3.12"]
-    compatible_architectures = ["arm64"]
-    skip_destroy             = false
   }
 }
