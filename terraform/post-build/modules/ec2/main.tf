@@ -130,8 +130,8 @@ resource "aws_instance" "this" {
   ${local.env_exports}
   source /etc/environment
 
-  # Install pip packages
-  ${local.pip_install}
+  # Install boto3 and pip packages
+  python3.12 -m pip install boto3 ${join(" ", var.pip_packages)}
 
   # Playwright setup
   ${local.playwright_install}
