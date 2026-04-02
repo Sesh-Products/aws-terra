@@ -73,8 +73,7 @@ lambda_functions = {
     log_retention_days             = 14
     log_level                      = "INFO"
     layer_arns = [
-    "arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312-Arm64:17",
-    "arn:aws:lambda:us-east-1:000605313601:layer:snowflake-connector-layer:2"
+    "arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312-Arm64:17"
     ]
     additional_policy_statements = [
     {
@@ -156,6 +155,20 @@ lambda_functions = {
   }
   }
 
+
+# =============================================================================
+# Lambda Layers
+# =============================================================================
+
+lambda_layers = {
+  snowflake_connector = {
+    layer_name               = "snowflake-connector-layer"
+    source_dir               = "../../src/Layers/snowflake"
+    description              = "Snowflake Python connector"
+    compatible_runtimes      = ["python3.12"]
+    compatible_architectures = ["arm64"]
+  }
+}
 
 # =============================================================================
 # S3

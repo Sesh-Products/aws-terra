@@ -83,6 +83,7 @@ variable "s3_buckets" {
     snowflake_fact_schema              = optional(string, null)
     snowflake_backup_task_name         = optional(string, null)
     snowflake_fact_task_name           = optional(string, null)
+    bucket_policy = optional(string, null)
     notification_configuration = optional(object({
     lambda_functions = optional(list(object({
       id            = string

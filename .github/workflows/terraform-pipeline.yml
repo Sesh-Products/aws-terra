@@ -132,7 +132,7 @@ jobs:
             pip install \
               -r "$LAYER_DIR/requirements.txt" \
               -t "$LAYER_DIR/python" \
-              --platform manylinux2014_aarch64 \
+              --platform manylinux_2_17_aarch64 \
               --only-binary=:all: \
               --python-version 3.12
           fi
