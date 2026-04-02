@@ -2,7 +2,7 @@ locals {
   ami_id = coalesce(var.ami_id, data.aws_ami.amazon_linux_arm[0].id)
 
   env_exports = join("\n", [
-    for k, v in var.environment_variables : "echo 'export ${k}=\"${v}\"' >> /etc/environment"
+    for k, v in var.environment_variables : "echo 'export ${k}=\"${v}\"' >> /etc/environment" if v != null
   ])
 
   dnf_packages = length(var.packages) > 0 ? join(" ", var.packages) : ""

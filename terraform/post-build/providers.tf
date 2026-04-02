@@ -48,7 +48,7 @@ provider "snowflake" {
   organization_name = local.snowflake_creds["organization"]
   account_name      = local.snowflake_creds["account"]
   user              = local.snowflake_creds["username"]
-  private_key       = data.aws_secretsmanager_secret_version.snowflake_key.secret_string
+  private_key       = replace(data.aws_secretsmanager_secret_version.snowflake_key.secret_string, "\\n", "\n")
   authenticator     = "SNOWFLAKE_JWT"
   role              = "ACCOUNTADMIN"
   warehouse         = "COMPUTE_WH"
