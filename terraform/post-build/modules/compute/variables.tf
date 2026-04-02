@@ -287,7 +287,7 @@ variable "logging_config" {
   default = null
 
   validation {
-    condition     = var.logging_config == null || contains(["JSON", "Text"], var.logging_config.log_format)
+    condition     = var.logging_config == null || contains(["JSON", "Text"], try(var.logging_config.log_format, ""))
     error_message = "logging_config.log_format must be JSON or Text."
   }
 }
