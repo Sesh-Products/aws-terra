@@ -139,7 +139,7 @@ variable "ephemeral_storage_size" {
   default     = null
 
   validation {
-    condition     = var.ephemeral_storage_size == null || (var.ephemeral_storage_size >= 512 && var.ephemeral_storage_size <= 10240)
+    condition     = var.ephemeral_storage_size == null || (var.ephemeral_storage_size != null && var.ephemeral_storage_size >= 512 && var.ephemeral_storage_size <= 10240)
     error_message = "ephemeral_storage_size must be between 512 and 10240 MB."
   }
 }
