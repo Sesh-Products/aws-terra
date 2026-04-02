@@ -91,7 +91,7 @@ jobs:
                 "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
                 "description": "Snowflake RSA private key",
                 "recovery_window_in_days": 0,
-                "secret_string": null
+                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
               }
             }
 
