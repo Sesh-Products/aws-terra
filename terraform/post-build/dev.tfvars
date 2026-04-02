@@ -52,6 +52,7 @@ lambda_functions = {
       ]
     }]
     extra_environment_variables = {
+    NOTIFY_EMAIL = "naimish@seshproducts.com"
     NIELSEN_FROM_EMAIL = "byzzer.services@smb.nielseniq.com"
     EC2_TRIGGER_LAMBDA = "ses-ec2-trigger-dev"
     RAW_BUCKET_EMAIL   = "pos-raw-email-bucket"
@@ -77,6 +78,11 @@ lambda_functions = {
     "arn:aws:lambda:us-east-1:000605313601:layer:snowflake-connector-layer:2"
     ]
     additional_policy_statements = [
+    {
+      effect    = "Allow"
+      actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+      resources = ["*"]
+    },
     {
       effect    = "Allow"
       actions   = ["s3:GetObject"]
@@ -109,6 +115,7 @@ lambda_functions = {
       ]
     }]
     extra_environment_variables = {
+    NOTIFY_EMAIL = "naimish@seshproducts.com"
     TRANSFORMED_BUCKET  = "pos-processed-email-bucket"
     SNOWFLAKE_ACCOUNT   = "JNPMQNX-VI43165"
     SNOWFLAKE_USER      = "JACKIE"

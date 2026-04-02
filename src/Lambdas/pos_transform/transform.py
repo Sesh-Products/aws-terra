@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat
 
 
 s3 = boto3.client("s3")
+ses_client = boto3.client("ses", region_name="us-east-1")
 
 VENDOR_CONFIG = json.loads(os.environ.get("VENDOR_CONFIG", "{}"))
 COLUMN_CONFIG = json.loads(os.environ.get("COLUMN_CONFIG", "{}"))
@@ -38,15 +39,19 @@ def get_snowflake_connection():
         format=PrivateFormat.PKCS8,
         encryption_algorithm=NoEncryption()
     )
-    return snowflake.connector.connect(
-        account     = SNOWFLAKE_ACCOUNT,
-        user        = SNOWFLAKE_USER,
-        private_key = private_key_bytes,
-        database    = SNOWFLAKE_DATABASE,
-        schema      = SNOWFLAKE_SCHEMA,
-        warehouse   = SNOWFLAKE_WAREHOUSE,
-        role        = SNOWFLAKE_ROLE
-    )
+    try:
+        return snowflake.connector.connect(
+            account     = SNOWFLAKE_ACCOUNT,
+            user        = SNOWFLAKE_USER,
+            private_key = private_key_bytes,
+            database    = SNOWFLAKE_DATABASE,
+            schema      = SNOWFLAKE_SCHEMA,
+            warehouse   = SNOWFLAKE_WAREHOUSE,
+            role        = SNOWFLAKE_ROLE
+        )
+    except Exception as e:
+        print(json.dumps({"event": "snowflake_connection_failed", "error": str(e)}))
+        raise
 
 def fix_xlsx(body_bytes):
     input_buf  = BytesIO(body_bytes)
@@ -129,7 +134,10 @@ def find_header_row(df_raw, max_rows=50):
     print(f"Found {len(header_rows)} header row(s), data starts at row {data_start}:")
     for i, non_null in header_rows:
         print(f"  Row {i}: {non_null[:6]}")
-
+    if data_start is None:
+        print(json.dumps({"event": "header_not_found", "rows_scanned": max_rows}))
+        raise ValueError(f"Could not detect header row")  # ← STOP
+    print(json.dumps({"event": "header_found", "header_row": data_start - 1}))
     return data_start - 1
 
 
@@ -181,7 +189,9 @@ def clean_dataframe(df_raw, store_name):
         )
         df = df[~mask].reset_index(drop=True)
         print(f"Dropped total/empty rows using anchor: '{anchor_col}'")
-
+    if df.empty:
+        print(json.dumps({"event": "empty_after_clean", "store": store_name}))
+        raise ValueError(f"DataFrame empty after cleaning for {store_name}")
     return df
 
 
@@ -193,7 +203,9 @@ def extract_columns(df, store_name):
         if cols in df.columns
     }
     if not rename_map:
-        return None
+        print(json.dumps({"event": "no_columns_matched", "store": store_name,"available": df.columns.tolist()}))
+        raise ValueError(f"No matching columns for {store_name}")
+    print(json.dumps({"event": "columns_extracted", "store": store_name,"columns": list(rename_map.values())}))
     df_extracted = df[list(rename_map.keys())].copy()
     df_extracted.rename(columns=rename_map, inplace=True)
     return df_extracted
@@ -211,7 +223,13 @@ def get_mapping_table():
             cursor.fetchall(), 
             columns=[col[0] for col in cursor.description]
         )
+        if df.empty:
+            raise ValueError("dim_product returned 0 rows")
+        print(json.dumps({"event": "mapping_table_loaded", "rows": len(df)}))
         return df
+    except Exception as e:
+        print(json.dumps({"event": "mapping_table_failed", "error": str(e)}))
+        raise
     finally:
         conn.close()
 
@@ -329,7 +347,18 @@ def product_mapping(df, mapping_df):
                 df_merge = pd.concat([matched, matched_12, matched_last12, unmatched_last12], ignore_index=True)
     else:
         df_merge = matched.copy()
-
+    unmatched     = df_merge['PROD_ID'].eq(0).sum()
+    unmatched_upcs = df_merge[df_merge['PROD_ID'].eq(0)]['Product UPC'].tolist()
+    print(json.dumps({
+        "event"      : "product_mapping_complete",
+        "total"      : len(df_merge),
+        "matched"    : len(df_merge) - unmatched,
+        "unmatched"  : unmatched
+    }))
+    if unmatched > 0:
+        print(json.dumps({"event": "product_mapping_failed",
+                          "unmatched_upcs": unmatched_upcs}))
+        raise ValueError(f"Product mapping failed for {unmatched} UPCs")
     # Rename Product UPC for consistency
     df_merge['Product_UPC'] = df_merge['Product UPC']
     df_merge.drop(columns=['Product UPC', 'UPC'], inplace=True, errors='ignore')
@@ -377,12 +406,16 @@ def normalize_week_ending(df):
 
         return pd.to_datetime(val)
     if not pd.api.types.is_datetime64_any_dtype(df['Trans_date']):
-        df['Trans_date'] = df['Trans_date'].apply(parse_date)
+        try:
+            df['Trans_date'] = df['Trans_date'].apply(parse_date)
+        except Exception as e:
+            print(json.dumps({"event": "date_parse_failed", "error": str(e)}))
+            raise  
 
     max_date    = df['Trans_date'].max()
     week_ending = nearest_saturday(max_date).normalize()
-
     df['Week_Ending'] = week_ending
+    print(json.dumps({"event": "week_ending_normalized","week_ending": str(df['Week_Ending'].iloc[0])}))
     return df
 
 def clean_postal_code(df):
@@ -409,47 +442,178 @@ def clean_postal_code(df):
     df['Postal_Code'] = df['Postal_Code'].apply(normalize_zip)
     return df
 
+def get_known_locations():
+    """Load all location data from Snowflake dim_location joined with dim tables"""
+    conn = get_snowflake_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                dl.loc_id,
+                dl.loc_name,
+                dl.store_code::STRING  as store_code,
+                dl.address,
+                dc.city_name           as city,
+                ds.state_name          as state,
+                dco.county_name        as county,
+                dc.postal_code
+            FROM SESH_METADATA.PUBLIC.dim_location dl
+            LEFT JOIN SESH_METADATA.PUBLIC.dim_city    dc  ON dl.city_id   = dc.city_id
+            LEFT JOIN SESH_METADATA.PUBLIC.dim_state   ds  ON dl.state_id  = ds.state_id
+            LEFT JOIN SESH_METADATA.PUBLIC.dim_county  dco ON dl.county_id = dco.county_id
+        """)
+        df = pd.DataFrame(
+            cursor.fetchall(),
+            columns=[col[0] for col in cursor.description]
+        )
+        if df.empty:
+            raise ValueError("dim_location returned 0 rows")  # ← STOP
+        print(json.dumps({"event": "known_locations_loaded", "rows": len(df)}))
+        return df
+    except Exception as e:
+        print(json.dumps({"event": "known_locations_failed", "error": str(e)}))
+        raise
+    finally:
+        conn.close()
+
+
+def check_new_stores(df, store_name, s3_client):
+    """Dynamically check new stores based on whatever columns the input file has"""
+    NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
+
+    # ── Load known locations from Snowflake ──────────────────────────────────
+    try:
+        known_df = get_known_locations()
+    except Exception as e:
+        print(f"Could not load known locations: {e}")
+        return set()
+
+    # ── Define column mapping between input file and Snowflake ───────────────
+    col_mapping = {
+        'Store_Code' : 'store_code',
+        'Store_Name' : 'loc_name',
+        'Address'    : 'address',
+        'City'       : 'city',
+        'State'      : 'state',
+        'County'     : 'county',
+        'Postal_Code': 'postal_code',
+    }
+
+    # ── Find which columns exist in both input file and known locations ───────
+    matched_cols = {
+        input_col: sf_col
+        for input_col, sf_col in col_mapping.items()
+        if input_col in df.columns and sf_col in known_df.columns
+    }
+
+    if not matched_cols:
+        print(f"No matching location columns found for {store_name} — skipping check")
+        return set()
+
+    print(f"Checking new stores using columns: {list(matched_cols.keys())}")
+
+    # ── Build composite key from available columns ───────────────────────────
+    def make_key(row, cols):
+        return "|".join(
+            str(row[c]).strip().upper() if pd.notna(row[c]) else ""
+            for c in cols
+        )
+
+    input_cols  = list(matched_cols.keys())
+    sf_cols     = list(matched_cols.values())
+
+    input_keys  = set(df.apply(lambda row: make_key(row, input_cols), axis=1))
+    known_keys  = set(known_df.apply(lambda row: make_key(row, sf_cols), axis=1))
+
+    new_stores  = input_keys - known_keys
+    # Remove empty keys
+    new_stores  = {k for k in new_stores if k.replace('|', '').strip()}
+
+    print(f"Input: {len(input_keys)}, Known: {len(known_keys)}, New: {len(new_stores)}")
+
+    if new_stores:
+        print(json.dumps({"event": "new_stores_detected", "store": store_name,"new_stores": list(new_stores), "count": len(new_stores)}))
+
+        if NOTIFY_EMAIL:
+            try:
+                ses_client.send_email(
+                    Source      = NOTIFY_EMAIL,
+                    Destination = {"ToAddresses": [NOTIFY_EMAIL]},
+                    Message     = {
+                        "Subject": {
+                            "Data": f"⚠️ New Stores Detected — {store_name}"
+                        },
+                        "Body": {
+                            "Text": {
+                                "Data": f"New stores detected in {store_name} file.\n\n"
+                                        f"Matched on columns: {', '.join(input_cols)}\n\n"
+                                        f"New store keys:\n" +
+                                        "\n".join(sorted(new_stores)) +
+                                        f"\n\nTotal: {len(new_stores)}\n\n"
+                                        f"Transformation stopped. Please add to dim_location."
+                            }
+                        }
+                    }
+                )
+                print(f"Notification sent to {NOTIFY_EMAIL}")
+            except Exception as e:
+                print(f"Failed to send email: {e}")
+        raise ValueError(f"New stores detected: {new_stores}") 
+    return new_stores
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
-    vendor_config = VENDOR_CONFIG.get(store_name, {})
-    mapping_bucket = get_mapping_table()
+    try:
+        vendor_config = VENDOR_CONFIG.get(store_name, {})
+        mapping_bucket = get_mapping_table()
 
-    if not COLUMN_CONFIG or store_name not in COLUMN_CONFIG:
-        print(f"No COLUMN_CONFIG entry for store '{store_name}' — skipping transform.")
-        return None
+        if not COLUMN_CONFIG or store_name not in COLUMN_CONFIG:
+            print(f"No COLUMN_CONFIG entry for store '{store_name}' — skipping transform.")
+            return None
 
-    df_raw = read_file(body_bytes, file_name)
-    print(f"Raw DataFrame shape: {df_raw.shape}")
+        df_raw = read_file(body_bytes, file_name)
+        print(f"Raw DataFrame shape: {df_raw.shape}")
 
-    df = clean_dataframe(df_raw, store_name)
-    print(f"Cleaned DataFrame shape: {df.shape}, columns: {list(df.columns)}")
+        df = clean_dataframe(df_raw, store_name)
+        print(f"Cleaned DataFrame shape: {df.shape}, columns: {list(df.columns)}")
 
-    df_extracted = extract_columns(df, store_name)
-    if df_extracted is None:
-        print(f"No matching columns found for store '{store_name}' in '{file_name}'")
-        return None
-    print(f"Extracted shape: {df_extracted.shape}")
+        df_extracted = extract_columns(df, store_name)
+        if df_extracted is None:
+            print(f"No matching columns found for store '{store_name}' in '{file_name}'")
+            return None
+        print(f"Extracted shape: {df_extracted.shape}")
 
-    df_extracted = product_mapping(df_extracted, mapping_bucket)
-    df_extracted = normalize_week_ending(df_extracted)
+        new_stores = check_new_stores(df_extracted, store_name, s3_client)
+        if new_stores:
+            print(f"New stores detected — stopping transformation: {new_stores}")
+            return None  # ← stop here
 
-    missing = vendor_config.get("missing", [])
-    if missing:
-        df_extracted = handle_missing(df_extracted, missing)
+        df_extracted = product_mapping(df_extracted, mapping_bucket)
+        df_extracted = normalize_week_ending(df_extracted)
 
-    # ← Add this block to clean numeric columns
-    numeric_cols = ["EQ_Units", "Sales", "EQ Units"]
-    for col in numeric_cols:
-        if col in df_extracted.columns:
-            df_extracted[col] = pd.to_numeric(df_extracted[col], errors='coerce').fillna(0)
-    
-    df_extracted = clean_postal_code(df_extracted)
-    base_name  = file_name.rsplit('.', 1)[0]
-    output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
+        missing = vendor_config.get("missing", [])
+        if missing:
+            df_extracted = handle_missing(df_extracted, missing)
 
-    csv_buffer = StringIO()
-    df_extracted.to_csv(csv_buffer, index=False)
-    s3_client.put_object(Bucket=output_bucket, Key=output_key, Body=csv_buffer.getvalue())
+        # ← Add this block to clean numeric columns
+        numeric_cols = ["EQ_Units", "Sales", "EQ Units"]
+        for col in numeric_cols:
+            if col in df_extracted.columns:
+                df_extracted[col] = pd.to_numeric(df_extracted[col], errors='coerce').fillna(0)
 
-    print(f"Saved transformed CSV to: s3://{output_bucket}/{output_key}")
-    return output_key
+        df_extracted = clean_postal_code(df_extracted)
+        base_name  = file_name.rsplit('.', 1)[0]
+        output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
+
+        csv_buffer = StringIO()
+        df_extracted.to_csv(csv_buffer, index=False)
+        s3_client.put_object(Bucket=output_bucket, Key=output_key, Body=csv_buffer.getvalue())
+        print(json.dumps({"event": "transform_complete", "store": store_name,
+                          "file": file_name, "output_key": output_key,
+                          "rows": len(df_extracted)}))
+        return output_key
+    except ValueError as e:
+        print(json.dumps({"event": "transform_stopped", "store": store_name,"file": file_name, "reason": str(e)}))
+        raise  # ← STOP, bubble up to index.py handler
+    except Exception as e:
+        print(json.dumps({"event": "transform_unexpected_error", "store": store_name,"file": file_name, "error": str(e)}))
+        raise
