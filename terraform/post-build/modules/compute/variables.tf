@@ -139,7 +139,7 @@ variable "ephemeral_storage_size" {
   default     = null
 
   validation {
-    condition     = var.ephemeral_storage_size == null || (var.ephemeral_storage_size >= 512 && var.ephemeral_storage_size <= 10240)
+    condition     = var.ephemeral_storage_size == null ? true : (var.ephemeral_storage_size >= 512 && var.ephemeral_storage_size <= 10240)
     error_message = "ephemeral_storage_size must be between 512 and 10240 MB."
   }
 }
@@ -287,7 +287,7 @@ variable "logging_config" {
   default = null
 
   validation {
-    condition     = var.logging_config == null || contains(["JSON", "Text"], var.logging_config.log_format)
+    condition     = var.logging_config == null || contains(["JSON", "Text"], var.logging_config == null ? "" : var.logging_config.log_format)
     error_message = "logging_config.log_format must be JSON or Text."
   }
 }

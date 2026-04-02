@@ -16,11 +16,11 @@ module "secrets" {
   rotation_days           = each.value.rotation_days
 
   secret_string = (
-  each.key == "snowflake_private_key" ? (
-    var.snowflake_private_key_path != null ? file(var.snowflake_private_key_path) : null
-  ) :
-  each.value.secret_string
-)
+    each.key == "snowflake_private_key" ? (
+      var.snowflake_private_key != null ? var.snowflake_private_key : each.value.secret_string
+    ) :
+    each.value.secret_string
+  )
 
   tags = {
     Environment = var.environment

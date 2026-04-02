@@ -1,3 +1,7 @@
+locals {
+  snowflake_layer_arn = try(module.layer["snowflake_connector"].layer_arn, "")
+}
+
 # =============================================================================
 # Lambda Layers
 # =============================================================================
@@ -63,6 +67,7 @@ module "storage" {
   snowflake_fact_schema              = each.value.snowflake_fact_schema
   snowflake_backup_task_name         = each.value.snowflake_backup_task_name
   snowflake_fact_task_name           = each.value.snowflake_fact_task_name
+  bucket_policy                      = each.value.bucket_policy
   notification_configuration         = each.value.notification_configuration
   depends_on                         = [module.compute]
   tags = {
@@ -104,7 +109,7 @@ module "compute" {
   publish      = each.value.publish
   create_alias = each.value.create_alias
 
-  layer_arns = each.value.layer_arns
+  layer_arns = each.key == "pos_transform" && local.snowflake_layer_arn != "" ? concat(each.value.layer_arns, [local.snowflake_layer_arn]) : each.value.layer_arns
   additional_policy_statements = each.value.additional_policy_statements
   cloudwatch_log_group_retention_days = each.value.log_retention_days
   environment_variables = merge(

@@ -8,6 +8,8 @@ terraform {
     }
   }
 }
+
+data "aws_caller_identity" "current" {}
 # =============================================================================
 # S3 Bucket
 # =============================================================================
@@ -380,7 +382,7 @@ resource "aws_iam_role" "snowflake" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { AWS = "arn:aws:iam::000605313601:root" }
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
       Action    = "sts:AssumeRole"
     }]
   })
@@ -579,7 +581,7 @@ resource "snowflake_task" "load_pos_backup" {
     minutes = 2
   }
 
-  sql_statement = templatefile("${path.root}/../../src/Database/snowflake/tasks/load_pos_backup.sql", {
+  sql_statement = templatefile("${path.root}/../../src/Database/Snowflake/tasks/load_pos_backup.sql", {
     database      = var.snowflake_database
     schema        = var.snowflake_schema
     stream_name   = var.snowflake_stream_name

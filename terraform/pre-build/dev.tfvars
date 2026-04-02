@@ -2,7 +2,6 @@
 # =============================================================================
 # Secrets
 # =============================================================================
-snowflake_private_key_path = "C:\\SESH\\ETL Automation\\snowflake-schema_change\\rsa_key.p8"
 secrets = {
   snowflake_credentials = {
     secret_name             = "snowflake/pos-pipeline/dev/credentials"
