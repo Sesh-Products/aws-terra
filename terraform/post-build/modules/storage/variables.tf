@@ -270,7 +270,7 @@ variable "acceleration_status" {
   default     = null
 
   validation {
-    condition     = var.acceleration_status == null || contains(["Enabled", "Suspended"], var.acceleration_status)
+    condition     = var.acceleration_status == null || contains(["Enabled", "Suspended"], try(var.acceleration_status, ""))
     error_message = "acceleration_status must be Enabled or Suspended."
   }
 }
@@ -285,7 +285,7 @@ variable "request_payer" {
   default     = null
 
   validation {
-    condition     = var.request_payer == null || contains(["BucketOwner", "Requester"], var.request_payer)
+    condition     = var.request_payer == null || contains(["BucketOwner", "Requester"], try(var.request_payer, ""))
     error_message = "request_payer must be BucketOwner or Requester."
   }
 }

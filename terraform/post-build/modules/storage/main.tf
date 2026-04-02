@@ -581,7 +581,7 @@ resource "snowflake_task" "load_pos_backup" {
     minutes = 2
   }
 
-  sql_statement = templatefile("${path.root}/../../src/Database/snowflake/tasks/load_pos_backup.sql", {
+  sql_statement = templatefile("${path.root}/../../src/Database/Snowflake/tasks/load_pos_backup.sql", {
     database      = var.snowflake_database
     schema        = var.snowflake_schema
     stream_name   = var.snowflake_stream_name
