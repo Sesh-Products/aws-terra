@@ -137,7 +137,7 @@ def find_header_row(df_raw, max_rows=50):
     if data_start is None:
         print(json.dumps({"event": "header_not_found", "rows_scanned": max_rows}))
         raise ValueError(f"Could not detect header row")  # ← STOP
-    print(json.dumps({"event": "header_found", "header_row": data_start - 1}))
+    print(json.dumps({"event": "header_found", "header_row": int(data_start - 1)}))
     return data_start - 1
 
 
@@ -225,7 +225,7 @@ def get_mapping_table():
         )
         if df.empty:
             raise ValueError("dim_product returned 0 rows")
-        print(json.dumps({"event": "mapping_table_loaded", "rows": len(df)}))
+        print(json.dumps({"event": "mapping_table_loaded", "rows": int(len(df))}))
         return df
     except Exception as e:
         print(json.dumps({"event": "mapping_table_failed", "error": str(e)}))
@@ -350,10 +350,10 @@ def product_mapping(df, mapping_df):
     unmatched     = df_merge['PROD_ID'].eq(0).sum()
     unmatched_upcs = df_merge[df_merge['PROD_ID'].eq(0)]['Product UPC'].tolist()
     print(json.dumps({
-        "event"      : "product_mapping_complete",
-        "total"      : len(df_merge),
-        "matched"    : len(df_merge) - unmatched,
-        "unmatched"  : unmatched
+        "event"    : "product_mapping_complete",
+        "total"    : int(len(df_merge)),
+        "matched"  : int(len(df_merge) - unmatched),
+        "unmatched": int(unmatched)
     }))
     if unmatched > 0:
         print(json.dumps({"event": "product_mapping_failed",
