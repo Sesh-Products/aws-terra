@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 import re
 import boto3
 from email import policy
@@ -9,6 +8,7 @@ from datetime import datetime
 
 s3             = boto3.client("s3")
 lambda_client  = boto3.client("lambda")
+ses_client = boto3.client("ses", region_name="us-east-1")
 
 def log(event_name, **kwargs):
     print(json.dumps({"event": event_name, "timestamp": datetime.utcnow().isoformat(), **kwargs}))
@@ -94,7 +94,11 @@ def handler(event, context):
         log("latest_file_found", s3_key=s3_key, message_id=message_id)
         response   = s3.get_object(Bucket=RAW_BUCKET, Key=s3_key)
         raw_email  = response["Body"].read()
-
+    
+    if not raw_email:
+        log("email_empty", message_id=message_id)
+        return {"status": "skipped", "reason": "empty_email"}
+    
     # ── Parse email ──────────────────────────────────────────────────────────
     msg         = BytesParser(policy=policy.default).parsebytes(raw_email)
     ses_from    = msg.get("From", "")
@@ -105,6 +109,10 @@ def handler(event, context):
     reply_to   = norm(ses_reply)
     subject    = norm(ses_subject)
     raw_subject = ses_subject  # ← keep original case for report name extraction
+
+    if not from_addr:
+        log("email_no_sender", message_id=message_id)
+        return {"status": "skipped", "reason": "no_sender"}
 
     log("email_received", message_id=message_id, from_addr=from_addr,
         reply_to=reply_to, subject=subject)
@@ -161,7 +169,33 @@ def handler(event, context):
 
     source = max(scores, key=scores.get)
     if scores[source] == 0:
-        source = "unknown"
+        NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
+        log("unknown_vendor", from_addr=from_addr, subject=subject, scores=scores)
+        if NOTIFY_EMAIL:
+            try:
+                ses_client.send_email(
+                    Source      = NOTIFY_EMAIL,
+                    Destination = {"ToAddresses": [NOTIFY_EMAIL]},
+                    Message     = {
+                        "Subject": {
+                            "Data": "⚠️ Unknown Vendor Detected — POS Extract"
+                        },
+                        "Body": {
+                            "Text": {
+                                "Data": f"An email was received from an unknown vendor.\n\n"
+                                        f"From: {from_addr}\n"
+                                        f"Subject: {subject}\n"
+                                        f"Message ID: {message_id}\n\n"
+                                        f"Vendor scores: {scores}\n\n"
+                                        f"Please update VENDOR_CONFIG to include this vendor."
+                            }
+                        }
+                    }
+                )
+                log("unknown_vendor_alert_sent", notify_email=NOTIFY_EMAIL)
+            except Exception as e:
+                log("alert_email_failed", error=str(e))
+        return {"status": "skipped", "reason": "unknown_vendor"}
 
     cfg       = vendor_config.get(source, {})
     timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")

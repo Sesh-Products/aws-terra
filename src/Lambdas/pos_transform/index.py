@@ -12,7 +12,7 @@ def log(event_name, **kwargs):
 def handler(event, context):
     for record in event["Records"]:
         bucket   = record["s3"]["bucket"]["name"]
-        key = event['Records'][0]['s3']['object']['key']
+        key    = record["s3"]["object"]["key"]
         key = unquote_plus(key)
         filename = key.split("/")[-1]
 
@@ -47,5 +47,6 @@ def handler(event, context):
 
         except Exception as e:
             log("transform_error", source=source, filename=filename, error=str(e))
+            raise  
 
     return {"status": "processed"}
