@@ -95,10 +95,13 @@ jobs:
               }
             }
 
-      - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -input=false pre-build.tfplan
+      # - name: Terraform Apply
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: terraform apply -auto-approve -input=false pre-build.tfplan
 
+      - name: Terraform Destroy
+        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+        run: terraform destroy -auto-approve -input=false pre-build.tfplan
   # ─────────────────────────────────────────────────────────────────────────────
   # STEP 2 — Post-Build  (terraform/post-build)
   # Depends on pre-build completing successfully.
@@ -165,6 +168,10 @@ jobs:
             -var-file="dev.tfvars" \
             -out=post-build.tfplan
 
-      - name: Terraform Apply
+      # - name: Terraform Apply
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: terraform apply -auto-approve -input=false post-build.tfplan
+
+      - name: Terraform Destroy
         if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -input=false post-build.tfplan
+        run: terraform destroy -auto-approve -input=false pre-build.tfplan
