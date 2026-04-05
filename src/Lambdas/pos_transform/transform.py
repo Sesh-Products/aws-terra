@@ -499,6 +499,12 @@ def check_new_stores(df, store_name, s3_client):
         'County'     : 'county',
         'Postal_Code': 'postal_code',
     }
+    
+    print(json.dumps({
+    "event": "check_new_stores_columns",
+    "df_columns": list(df.columns),
+    "looking_for": list(col_mapping.keys())
+    }))
 
     # ── Find which columns exist in both input file and known locations ───────
     matched_cols = {
@@ -583,11 +589,6 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
             return None
         print(f"Extracted shape: {df_extracted.shape}")
 
-        new_stores = check_new_stores(df_extracted, store_name, s3_client)
-        if new_stores:
-            print(f"New stores detected — stopping transformation: {new_stores}")
-            return None  # ← stop here
-
         df_extracted = product_mapping(df_extracted, mapping_bucket)
         df_extracted = normalize_week_ending(df_extracted)
 
@@ -602,6 +603,12 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
                 df_extracted[col] = pd.to_numeric(df_extracted[col], errors='coerce').fillna(0)
 
         df_extracted = clean_postal_code(df_extracted)
+
+        new_stores = check_new_stores(df_extracted, store_name, s3_client)
+        if new_stores:
+            print(f"New stores detected — stopping transformation: {new_stores}")
+            return None  # ← stop here
+        
         base_name  = file_name.rsplit('.', 1)[0]
         output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
 
