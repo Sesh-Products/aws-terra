@@ -3,10 +3,6 @@ output "lambda_layer_arns" {
   value       = { for k, v in module.layer : k => v.layer_arn }
 }
 
-output "secret_arns" {
-  description = "ARN of each Secrets Manager secret"
-  value       = { for k, v in module.secrets : k => v.secret_arn }
-}
 
 output "s3_bucket_ids" {
   description = "ID (name) of each S3 bucket"
@@ -51,4 +47,9 @@ output "lambda_log_group" {
 output "lambda_iam_role_arn" {
   description = "ARN of the Lambda execution IAM role for each function"
   value       = { for k, v in module.compute : k => v.iam_role_arn }
+}
+
+output "ec2_instance_ids" {
+  description = "EC2 instance IDs"
+  value       = { for k, v in module.ec2 : k => v.instance_id }
 }

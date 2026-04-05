@@ -270,7 +270,7 @@ variable "acceleration_status" {
   default     = null
 
   validation {
-    condition     = var.acceleration_status == null || contains(["Enabled", "Suspended"], var.acceleration_status)
+    condition     = var.acceleration_status == null || contains(["Enabled", "Suspended"], var.acceleration_status == null ? "" : var.acceleration_status)
     error_message = "acceleration_status must be Enabled or Suspended."
   }
 }
@@ -285,7 +285,7 @@ variable "request_payer" {
   default     = null
 
   validation {
-    condition     = var.request_payer == null || contains(["BucketOwner", "Requester"], var.request_payer)
+    condition     = var.request_payer == null || contains(["BucketOwner", "Requester"], var.request_payer == null ? "" : var.request_payer)
     error_message = "request_payer must be BucketOwner or Requester."
   }
 }
@@ -311,4 +311,101 @@ variable "intelligent_tiering_configurations" {
     deep_archive_access_days = optional(number)
   }))
   default = []
+}
+# =============================================================================
+# Seed Data — uploads local files to bucket on terraform apply
+# =============================================================================
+
+variable "seed_files" {
+  description = "Files to upload to the bucket on terraform apply"
+  type = map(object({
+    local_path   = string
+    s3_key       = string
+    content_type = optional(string, "text/csv")
+  }))
+  default = {}
+}
+
+# =============================================================================
+# Snowflake
+# =============================================================================
+
+variable "snowflake_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "snowflake_iam_role_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_storage_integration_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_database" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_table" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_stage_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_pipe_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_file_format_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_stream_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_task_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_backup_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_dim_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_fact_schema" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_backup_task_name" {
+  type    = string
+  default = null
+}
+
+variable "snowflake_fact_task_name" {
+  type    = string
+  default = null
 }

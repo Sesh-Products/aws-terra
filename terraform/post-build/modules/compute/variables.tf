@@ -139,7 +139,7 @@ variable "ephemeral_storage_size" {
   default     = null
 
   validation {
-    condition     = var.ephemeral_storage_size == null || (var.ephemeral_storage_size >= 512 && var.ephemeral_storage_size <= 10240)
+    condition     = var.ephemeral_storage_size == null ? true : (var.ephemeral_storage_size >= 512 && var.ephemeral_storage_size <= 10240)
     error_message = "ephemeral_storage_size must be between 512 and 10240 MB."
   }
 }
@@ -192,6 +192,16 @@ variable "attach_vpc_policy" {
   description = "Attach AWSLambdaVPCAccessExecutionRole managed policy. Required when vpc_config is set."
   type        = bool
   default     = false
+}
+
+variable "additional_policy_statements" {
+  description = "List of additional IAM policy statements to attach to the Lambda execution role."
+  type = list(object({
+    effect    = string
+    actions   = list(string)
+    resources = list(string)
+  }))
+  default = []
 }
 
 # =============================================================================
@@ -277,7 +287,7 @@ variable "logging_config" {
   default = null
 
   validation {
-    condition     = var.logging_config == null || contains(["JSON", "Text"], var.logging_config.log_format)
+    condition     = var.logging_config == null || contains(["JSON", "Text"], var.logging_config == null ? "" : var.logging_config.log_format)
     error_message = "logging_config.log_format must be JSON or Text."
   }
 }
