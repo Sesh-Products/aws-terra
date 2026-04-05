@@ -464,7 +464,7 @@ def get_known_locations():
         """)
         df = pd.DataFrame(
             cursor.fetchall(),
-            columns=[col[0] for col in cursor.description]
+            columns=[col[0].lower() for col in cursor.description]
         )
         if df.empty:
             raise ValueError("dim_location returned 0 rows")  # ← STOP
