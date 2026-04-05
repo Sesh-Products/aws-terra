@@ -479,8 +479,8 @@ def get_known_locations():
 
 def check_new_stores(df, store_name, s3_client):
     """Dynamically check new stores based on whatever columns the input file has"""
-    print(json.dumps({"event": "check_new_stores_called", "notify_email": NOTIFY_EMAIL, "store": store_name}))
     NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
+    print(json.dumps({"event": "check_new_stores_called", "notify_email": NOTIFY_EMAIL, "store": store_name}))
 
     # ── Load known locations from Snowflake ──────────────────────────────────
     try:
