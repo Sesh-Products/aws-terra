@@ -160,12 +160,12 @@ jobs:
       # - name: Terraform Validate
       #   run: terraform validate
 
-      - name: Terraform Plan
-        run: |
-          terraform plan \
-            -input=false \
-            -var-file="dev.tfvars" \
-            -out=post-build.tfplan
+      # - name: Terraform Plan
+      #   run: |
+      #     terraform plan \
+      #       -input=false \
+      #       -var-file="dev.tfvars" \
+      #       -out=post-build.tfplan
 
       # - name: Terraform Apply
       #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
