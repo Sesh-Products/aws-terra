@@ -492,7 +492,7 @@ def check_new_stores(df, store_name, s3_client):
     # ── Define column mapping between input file and Snowflake ───────────────
     col_mapping = {
         'Store_Code' : 'store_code',
-        'Store_Name' : 'loc_name',
+        'Store'      : 'loc_name',
         'Address'    : 'address',
         'City'       : 'city',
         'State'      : 'state',
