@@ -167,40 +167,40 @@ jobs:
       # Each command is allowed to fail (|| true) in case the resource was
       # already imported on a previous run.
       # ───────────────────────────────────────────────────────────────────────
-      - name: Terraform Import Existing Resources
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: |
-          echo "── Importing IAM Role: nielsen-playwright-dev-role ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.ec2["nielsen_playwright"].aws_iam_role.ec2' \
-            nielsen-playwright-dev-role || true
+      # - name: Terraform Import Existing Resources
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: |
+      #     echo "── Importing IAM Role: nielsen-playwright-dev-role ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.ec2["nielsen_playwright"].aws_iam_role.ec2' \
+      #       nielsen-playwright-dev-role || true
 
-          echo "── Importing IAM Role: snowflake-pos-email-role ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].aws_iam_role.snowflake[0]' \
-            snowflake-pos-email-role || true
+      #     echo "── Importing IAM Role: snowflake-pos-email-role ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].aws_iam_role.snowflake[0]' \
+      #       snowflake-pos-email-role || true
 
-          echo "── Importing S3 Bucket: pos-processed-email-bucket ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].aws_s3_bucket.this' \
-            pos-processed-email-bucket || true
+      #     echo "── Importing S3 Bucket: pos-processed-email-bucket ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].aws_s3_bucket.this' \
+      #       pos-processed-email-bucket || true
 
-          echo "── Importing S3 Bucket: product-upc-mapping ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_product_upc_mapping"].aws_s3_bucket.this' \
-            product-upc-mapping || true
+      #     echo "── Importing S3 Bucket: product-upc-mapping ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_product_upc_mapping"].aws_s3_bucket.this' \
+      #       product-upc-mapping || true
 
-          echo "── Importing Snowflake File Format: pos_csv_format_dev ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].snowflake_file_format.csv[0]' \
-            'SESH_METADATA.STG."pos_csv_format_dev"' || true
+      #     echo "── Importing Snowflake File Format: pos_csv_format_dev ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].snowflake_file_format.csv[0]' \
+      #       'SESH_METADATA.STG."pos_csv_format_dev"' || true
 
-          echo "── All imports complete ──"
+      #     echo "── All imports complete ──"
 
       - name: Terraform Plan
         run: |
