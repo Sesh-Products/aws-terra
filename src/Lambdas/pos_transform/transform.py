@@ -512,7 +512,10 @@ def check_new_stores(df, store_name, s3_client):
         for input_col, sf_col in col_mapping.items()
         if input_col in df.columns and sf_col in known_df.columns
     }
-
+    print(json.dumps({
+    "event": "known_df_columns",
+    "columns": list(known_df.columns)
+    }))
     if not matched_cols:
         print(f"No matching location columns found for {store_name} — skipping check")
         return set()
