@@ -21,8 +21,7 @@ module "layer" {
 }
 
 data "archive_file" "layer_zips" {
-  for_each = var.lambda_layers
-
+  for_each    = var.is_destroy ? {} : local.lambda_functions 
   type        = "zip"
   source_dir  = each.value.source_dir
   output_path = "${path.root}/.builds/${each.key}-layer.zip"

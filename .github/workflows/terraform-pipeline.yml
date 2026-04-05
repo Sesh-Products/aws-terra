@@ -26,6 +26,82 @@ env:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
+  # STEP 1 — Pre-Build  (terraform/pre-build)
+  # Creates Secrets Manager secrets and any bootstrap infrastructure
+  # ─────────────────────────────────────────────────────────────────────────────
+  pre-build:
+    name: "Step 1 · Pre-Build"
+    runs-on: ubuntu-latest
+    environment: dev
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform/pre-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      # - name: Terraform Format
+      #   run: terraform fmt -check
+
+      # - name: Terraform Validate
+      #   run: terraform validate
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -input=false \
+            -var-file="dev.tfvars" \
+            -out=pre-build.tfplan
+        env:
+          TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          # Override the secret_string values with GitHub Secrets to avoid
+          # committing credentials in dev.tfvars
+          TF_VAR_secrets: |
+            {
+              "snowflake_credentials": {
+                "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/credentials",
+                "description": "Snowflake credentials for pos-pipeline",
+                "recovery_window_in_days": 0,
+                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_CREDENTIALS_JSON) }}
+              },
+              "snowflake_private_key": {
+                "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
+                "description": "Snowflake RSA private key",
+                "recovery_window_in_days": 0,
+                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
+              }
+            }
+
+      - name: Terraform Apply
+        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+        run: terraform apply -auto-approve -input=false pre-build.tfplan
+
+      # - name: Terraform Destroy
+      #   run: terraform destroy -auto-approve
+  # ─────────────────────────────────────────────────────────────────────────────
   # STEP 2 — Post-Build  (terraform/post-build)
   # Depends on pre-build completing successfully.
   # Creates Lambda functions, S3 buckets, EC2 instances, Snowflake resources.
@@ -84,93 +160,16 @@ jobs:
       # - name: Terraform Validate
       #   run: terraform validate
 
-      # - name: Terraform Plan
-      #   run: |
-      #     terraform plan \
-      #       -input=false \
-      #       -var-file="dev.tfvars" \
-      #       -out=post-build.tfplan
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -input=false \
+            -var-file="dev.tfvars" \
+            -out=post-build.tfplan
 
-      # - name: Terraform Apply
-      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-      #   run: terraform apply -auto-approve -input=false post-build.tfplan
-      
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve -var="is_destroy=true"
-  # ─────────────────────────────────────────────────────────────────────────────
-  # STEP 1 — Pre-Build  (terraform/pre-build)
-  # Creates Secrets Manager secrets and any bootstrap infrastructure
-  # ─────────────────────────────────────────────────────────────────────────────
-  pre-build:
-    name: "Step 1 · Pre-Build"
-    runs-on: ubuntu-latest
-    environment: dev
+      - name: Terraform Apply
+        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+        run: terraform apply -auto-approve -input=false post-build.tfplan
 
-    defaults:
-      run:
-        shell: bash
-        working-directory: terraform/pre-build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform Init
-        run: terraform init
-
-      # - name: Terraform Format
-      #   run: terraform fmt -check
-
-      # - name: Terraform Validate
-      #   run: terraform validate
-
-      # - name: Terraform Plan
-      #   run: |
-      #     terraform plan \
-      #       -input=false \
-      #       -var-file="dev.tfvars" \
-      #       -out=pre-build.tfplan
-      #   env:
-      #     TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-      #     # Override the secret_string values with GitHub Secrets to avoid
-      #     # committing credentials in dev.tfvars
-      #     TF_VAR_secrets: |
-      #       {
-      #         "snowflake_credentials": {
-      #           "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/credentials",
-      #           "description": "Snowflake credentials for pos-pipeline",
-      #           "recovery_window_in_days": 0,
-      #           "secret_string": ${{ toJSON(secrets.SNOWFLAKE_CREDENTIALS_JSON) }}
-      #         },
-      #         "snowflake_private_key": {
-      #           "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
-      #           "description": "Snowflake RSA private key",
-      #           "recovery_window_in_days": 0,
-      #           "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
-      #         }
-      #       }
-
-      # - name: Terraform Apply
-      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-      #   run: terraform apply -auto-approve -input=false pre-build.tfplan
-
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve -var="is_destroy=true"
-  
+      # - name: Terraform Destroy
+      #   run: terraform destroy -auto-approve
