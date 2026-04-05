@@ -190,7 +190,3 @@ variable "byzzer_report" {
   default = null
 }
 
-variable "is_destroy" {
-  type    = bool
-  default = false
-}
