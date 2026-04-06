@@ -187,7 +187,7 @@ variable "byzzer_report" {
 }
 
 variable "raw_bucket_email" {
-  description = "S3 bucket name where raw emails are stored. Injected into EC2 as RAW_BUCKET_EMAIL env var."
+  sensitive = true
   type        = string
   default     = null
 }
