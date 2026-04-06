@@ -272,7 +272,10 @@ ec2_instances = {
     s3_script_bucket   = "pos-raw-email-bucket"
     s3_script_prefix   = "ec2-scripts/nielsen"
     install_playwright = true                    
-    pip_packages       = ["boto3"]               
+    pip_packages       = ["boto3"]
+    environment_variables = {
+      RAW_BUCKET_EMAIL = "pos-raw-email-bucket"
+    }           
     additional_policy_statements = [
       {
         effect  = "Allow"
