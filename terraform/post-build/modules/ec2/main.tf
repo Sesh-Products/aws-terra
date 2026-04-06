@@ -143,8 +143,11 @@ resource "aws_instance" "this" {
 
   # Additional startup commands
   ${var.startup_script}
+  
 EOF
-
+  lifecycle {
+    ignore_changes = [user_data]  # ← prevents replacement on every apply
+  }
 
   tags = merge(var.tags, {
     Name = var.instance_name
