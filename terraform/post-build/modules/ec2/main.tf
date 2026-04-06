@@ -147,7 +147,8 @@ resource "aws_instance" "this" {
 EOF
   lifecycle {
   ignore_changes = [
-    ami
+    ami,
+    user_data
   ]
 }
   tags = merge(var.tags, {
