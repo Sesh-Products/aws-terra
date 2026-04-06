@@ -69,35 +69,35 @@ jobs:
       # - name: Terraform Validate
       #   run: terraform validate
 
-      - name: Terraform Plan
-        run: |
-          terraform plan \
-            -input=false \
-            -var-file="dev.tfvars" \
-            -out=pre-build.tfplan
-        env:
-          TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-          # Override the secret_string values with GitHub Secrets to avoid
-          # committing credentials in dev.tfvars
-          TF_VAR_secrets: |
-            {
-              "snowflake_credentials": {
-                "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/credentials",
-                "description": "Snowflake credentials for pos-pipeline",
-                "recovery_window_in_days": 0,
-                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_CREDENTIALS_JSON) }}
-              },
-              "snowflake_private_key": {
-                "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
-                "description": "Snowflake RSA private key",
-                "recovery_window_in_days": 0,
-                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
-              }
-            }
+      # - name: Terraform Plan
+      #   run: |
+      #     terraform plan \
+      #       -input=false \
+      #       -var-file="dev.tfvars" \
+      #       -out=pre-build.tfplan
+      #   env:
+      #     TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      #     # Override the secret_string values with GitHub Secrets to avoid
+      #     # committing credentials in dev.tfvars
+      #     TF_VAR_secrets: |
+      #       {
+      #         "snowflake_credentials": {
+      #           "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/credentials",
+      #           "description": "Snowflake credentials for pos-pipeline",
+      #           "recovery_window_in_days": 0,
+      #           "secret_string": ${{ toJSON(secrets.SNOWFLAKE_CREDENTIALS_JSON) }}
+      #         },
+      #         "snowflake_private_key": {
+      #           "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
+      #           "description": "Snowflake RSA private key",
+      #           "recovery_window_in_days": 0,
+      #           "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
+      #         }
+      #       }
 
-      - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -input=false pre-build.tfplan
+      # - name: Terraform Apply
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: terraform apply -auto-approve -input=false pre-build.tfplan
 
       # - name: Terraform Destroy
       #   run: terraform destroy -auto-approve
@@ -218,28 +218,28 @@ jobs:
       #     TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
       #     TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
-      - name: Terraform Plan
-        run: |
-          terraform plan \
-            -input=false \
-            -var-file="dev.tfvars" \
-            -out=post-build.tfplan
-        env:
-          # ── Byzzer credentials ─────────────────────────────────────────────
-          # Sourced from GitHub Secrets/Vars — never hardcoded in tfvars.
-          # Terraform passes these into EC2 user_data as environment variables.
-          TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
-          TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
-          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
+      # - name: Terraform Plan
+      #   run: |
+      #     terraform plan \
+      #       -input=false \
+      #       -var-file="dev.tfvars" \
+      #       -out=post-build.tfplan
+      #   env:
+      #     # ── Byzzer credentials ─────────────────────────────────────────────
+      #     # Sourced from GitHub Secrets/Vars — never hardcoded in tfvars.
+      #     # Terraform passes these into EC2 user_data as environment variables.
+      #     TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
+      #     TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
+      #     TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
-      - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -input=false post-build.tfplan
-        env:
-          # ── Must match Plan env vars exactly ──────────────────────────────
-          TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
-          TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
-          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
+      # - name: Terraform Apply
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: terraform apply -auto-approve -input=false post-build.tfplan
+      #   env:
+      #     # ── Must match Plan env vars exactly ──────────────────────────────
+      #     TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
+      #     TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
+      #     TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
-      # - name: Terraform Destroy
-      #   run: terraform destroy -auto-approve
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
