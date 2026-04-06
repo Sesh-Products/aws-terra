@@ -147,8 +147,7 @@ resource "aws_instance" "this" {
 EOF
   lifecycle {
   ignore_changes = [
-    user_data,  # env vars written once at launch
-    ami,        # prevents replacement when AWS releases a newer AMI
+    ami
   ]
 }
   tags = merge(var.tags, {
