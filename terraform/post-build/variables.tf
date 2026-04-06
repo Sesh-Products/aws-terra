@@ -141,11 +141,6 @@ variable "lambda_functions" {
     })), [])
   }))
   default = {
-    api = {
-      memory_size = 256
-      timeout     = 60
-      log_level   = "INFO"
-    }
   }
 }
 
