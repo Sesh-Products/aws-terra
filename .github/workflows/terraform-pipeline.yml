@@ -69,38 +69,38 @@ jobs:
       # - name: Terraform Validate
       #   run: terraform validate
 
-      - name: Terraform Plan
-        run: |
-          terraform plan \
-            -input=false \
-            -var-file="dev.tfvars" \
-            -out=pre-build.tfplan
-        env:
-          TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-          # Override the secret_string values with GitHub Secrets to avoid
-          # committing credentials in dev.tfvars
-          TF_VAR_secrets: |
-            {
-              "snowflake_credentials": {
-                "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/credentials",
-                "description": "Snowflake credentials for pos-pipeline",
-                "recovery_window_in_days": 0,
-                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_CREDENTIALS_JSON) }}
-              },
-              "snowflake_private_key": {
-                "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
-                "description": "Snowflake RSA private key",
-                "recovery_window_in_days": 0,
-                "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
-              }
-            }
+      # - name: Terraform Plan
+      #   run: |
+      #     terraform plan \
+      #       -input=false \
+      #       -var-file="dev.tfvars" \
+      #       -out=pre-build.tfplan
+      #   env:
+      #     TF_VAR_snowflake_private_key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      #     # Override the secret_string values with GitHub Secrets to avoid
+      #     # committing credentials in dev.tfvars
+      #     TF_VAR_secrets: |
+      #       {
+      #         "snowflake_credentials": {
+      #           "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/credentials",
+      #           "description": "Snowflake credentials for pos-pipeline",
+      #           "recovery_window_in_days": 0,
+      #           "secret_string": ${{ toJSON(secrets.SNOWFLAKE_CREDENTIALS_JSON) }}
+      #         },
+      #         "snowflake_private_key": {
+      #           "secret_name": "snowflake/pos-pipeline/${{ env.ENVIRONMENT }}/private-key",
+      #           "description": "Snowflake RSA private key",
+      #           "recovery_window_in_days": 0,
+      #           "secret_string": ${{ toJSON(secrets.SNOWFLAKE_PRIVATE_KEY) }}
+      #         }
+      #       }
 
-      - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -input=false pre-build.tfplan
+      # - name: Terraform Apply
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: terraform apply -auto-approve -input=false pre-build.tfplan
 
-      # - name: Terraform Destroy
-      #   run: terraform destroy -auto-approve
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
 
   # ─────────────────────────────────────────────────────────────────────────────
   # STEP 2 — Post-Build  (terraform/post-build)
@@ -167,79 +167,79 @@ jobs:
       # Each command is allowed to fail (|| true) in case the resource was
       # already imported on a previous run.
       # ───────────────────────────────────────────────────────────────────────
-      - name: Terraform Import Existing Resources
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: |
-          echo "── Importing IAM Role: nielsen-playwright-dev-role ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.ec2["nielsen_playwright"].aws_iam_role.ec2' \
-            nielsen-playwright-dev-role || true
+      # - name: Terraform Import Existing Resources
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: |
+      #     echo "── Importing IAM Role: nielsen-playwright-dev-role ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.ec2["nielsen_playwright"].aws_iam_role.ec2' \
+      #       nielsen-playwright-dev-role || true
  
-          echo "── Importing IAM Instance Profile: nielsen-playwright-dev-profile ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.ec2["nielsen_playwright"].aws_iam_instance_profile.ec2' \
-            nielsen-playwright-dev-profile || true
+      #     echo "── Importing IAM Instance Profile: nielsen-playwright-dev-profile ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.ec2["nielsen_playwright"].aws_iam_instance_profile.ec2' \
+      #       nielsen-playwright-dev-profile || true
  
-          echo "── Importing IAM Role: snowflake-pos-email-role ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].aws_iam_role.snowflake[0]' \
-            snowflake-pos-email-role || true
+      #     echo "── Importing IAM Role: snowflake-pos-email-role ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].aws_iam_role.snowflake[0]' \
+      #       snowflake-pos-email-role || true
  
-          echo "── Importing S3 Bucket: pos-processed-email-bucket ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].aws_s3_bucket.this' \
-            pos-processed-email-bucket || true
+      #     echo "── Importing S3 Bucket: pos-processed-email-bucket ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].aws_s3_bucket.this' \
+      #       pos-processed-email-bucket || true
  
-          echo "── Importing S3 Bucket: product-upc-mapping ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_product_upc_mapping"].aws_s3_bucket.this' \
-            product-upc-mapping || true
+      #     echo "── Importing S3 Bucket: product-upc-mapping ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_product_upc_mapping"].aws_s3_bucket.this' \
+      #       product-upc-mapping || true
  
-          echo "── Importing Snowflake Storage Integration: pos_s3_integration ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].snowflake_storage_integration.this[0]' \
-            pos_s3_integration || true
+      #     echo "── Importing Snowflake Storage Integration: pos_s3_integration ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].snowflake_storage_integration.this[0]' \
+      #       pos_s3_integration || true
  
-          echo "── Importing Snowflake File Format: pos_csv_format_dev ──"
-          terraform import \
-            -var-file="dev.tfvars" \
-            'module.storage["s3_bucket_transformed"].snowflake_file_format.csv[0]' \
-            'SESH_METADATA.STG."pos_csv_format_dev"' || true
+      #     echo "── Importing Snowflake File Format: pos_csv_format_dev ──"
+      #     terraform import \
+      #       -var-file="dev.tfvars" \
+      #       'module.storage["s3_bucket_transformed"].snowflake_file_format.csv[0]' \
+      #       'SESH_METADATA.STG."pos_csv_format_dev"' || true
  
-          echo "── All imports complete ──"
-        env:
-          TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
-          TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
-          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
+      #     echo "── All imports complete ──"
+      #   env:
+      #     TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
+      #     TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
+      #     TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
-      - name: Terraform Plan
-        run: |
-          terraform plan \
-            -input=false \
-            -var-file="dev.tfvars" \
-            -out=post-build.tfplan
-        env:
-          # ── Byzzer credentials ─────────────────────────────────────────────
-          # Sourced from GitHub Secrets/Vars — never hardcoded in tfvars.
-          # Terraform passes these into EC2 user_data as environment variables.
-          TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
-          TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
-          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
+      # - name: Terraform Plan
+      #   run: |
+      #     terraform plan \
+      #       -input=false \
+      #       -var-file="dev.tfvars" \
+      #       -out=post-build.tfplan
+      #   env:
+      #     # ── Byzzer credentials ─────────────────────────────────────────────
+      #     # Sourced from GitHub Secrets/Vars — never hardcoded in tfvars.
+      #     # Terraform passes these into EC2 user_data as environment variables.
+      #     TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
+      #     TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
+      #     TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
-      - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-        run: terraform apply -auto-approve -input=false post-build.tfplan
-        env:
-          # ── Must match Plan env vars exactly ──────────────────────────────
-          TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
-          TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
-          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
+      # - name: Terraform Apply
+      #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
+      #   run: terraform apply -auto-approve -input=false post-build.tfplan
+      #   env:
+      #     # ── Must match Plan env vars exactly ──────────────────────────────
+      #     TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
+      #     TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
+      #     TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
-      # - name: Terraform Destroy
-      #   run: terraform destroy -auto-approve
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
