@@ -175,32 +175,48 @@ jobs:
             -var-file="dev.tfvars" \
             'module.ec2["nielsen_playwright"].aws_iam_role.ec2' \
             nielsen-playwright-dev-role || true
-
+ 
+          echo "── Importing IAM Instance Profile: nielsen-playwright-dev-profile ──"
+          terraform import \
+            -var-file="dev.tfvars" \
+            'module.ec2["nielsen_playwright"].aws_iam_instance_profile.ec2' \
+            nielsen-playwright-dev-profile || true
+ 
           echo "── Importing IAM Role: snowflake-pos-email-role ──"
           terraform import \
             -var-file="dev.tfvars" \
             'module.storage["s3_bucket_transformed"].aws_iam_role.snowflake[0]' \
             snowflake-pos-email-role || true
-
+ 
           echo "── Importing S3 Bucket: pos-processed-email-bucket ──"
           terraform import \
             -var-file="dev.tfvars" \
             'module.storage["s3_bucket_transformed"].aws_s3_bucket.this' \
             pos-processed-email-bucket || true
-
+ 
           echo "── Importing S3 Bucket: product-upc-mapping ──"
           terraform import \
             -var-file="dev.tfvars" \
             'module.storage["s3_product_upc_mapping"].aws_s3_bucket.this' \
             product-upc-mapping || true
-
+ 
+          echo "── Importing Snowflake Storage Integration: pos_s3_integration ──"
+          terraform import \
+            -var-file="dev.tfvars" \
+            'module.storage["s3_bucket_transformed"].snowflake_storage_integration.this[0]' \
+            pos_s3_integration || true
+ 
           echo "── Importing Snowflake File Format: pos_csv_format_dev ──"
           terraform import \
             -var-file="dev.tfvars" \
             'module.storage["s3_bucket_transformed"].snowflake_file_format.csv[0]' \
             'SESH_METADATA.STG."pos_csv_format_dev"' || true
-
+ 
           echo "── All imports complete ──"
+        env:
+          TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
+          TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
+          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
       - name: Terraform Plan
         run: |
