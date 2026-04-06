@@ -96,7 +96,6 @@ jobs:
       #       }
 
       - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
         run: terraform apply -auto-approve -input=false pre-build.tfplan
 
       # - name: Terraform Destroy
@@ -233,7 +232,6 @@ jobs:
           TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
 
       - name: Terraform Apply
-        if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
         run: terraform apply -auto-approve -input=false post-build.tfplan
         env:
           # ── Must match Plan env vars exactly ──────────────────────────────
