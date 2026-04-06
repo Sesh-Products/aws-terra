@@ -112,7 +112,7 @@ variable "lambda_functions" {
     runtime                        = optional(string, "python3.12")
     handler                        = optional(string, "index.handler")
     source_file                    = optional(string, "../src/Lambdas/pos_extract_transform/index.py")
-    source_dir                     = optional(string,"../src/Lambdas/pos_extract_transform")
+    source_dir                     = optional(string)
     memory_size                    = optional(number, 256)
     timeout                        = optional(number, 60)
     ephemeral_storage_size         = optional(number, null)
