@@ -176,6 +176,7 @@ variable "ec2_instances" {
 
 variable "byzzer_email" {
   type    = string
+  sensitive = true
   default = null
 }
 
