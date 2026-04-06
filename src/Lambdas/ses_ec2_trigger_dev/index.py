@@ -49,6 +49,7 @@ def handler(event, context):
                 "commands": [
                     "source /etc/environment",          # ← add this
                     "set -a && source /etc/environment && set +a",  # more reliable
+                    "export PLAYWRIGHT_BROWSERS_PATH=/home/ec2-user/.playwright",
                     "python3.12 /home/ec2-user/scripts/index.py"
                 ]
             },
