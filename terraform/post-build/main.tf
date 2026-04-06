@@ -152,6 +152,7 @@ module "ec2" {
       BYZZER_EMAIL    = var.byzzer_email
       BYZZER_PASSWORD = var.byzzer_password
       BYZZER_REPORT   = var.byzzer_report
+      RAW_BUCKET_EMAIL = var.raw_bucket_email
     }
   )
 
