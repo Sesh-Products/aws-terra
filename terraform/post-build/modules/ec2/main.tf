@@ -145,10 +145,11 @@ resource "aws_instance" "this" {
   ${var.startup_script}
   
 EOF
+  user_data_replace_on_change = true
+
   lifecycle {
-  ignore_changes = [
-  ami,
-  create_before_destroy = true]
+    ignore_changes        = [ami]       
+    create_before_destroy = true        
   }
   tags = merge(var.tags, {
     Name = var.instance_name
