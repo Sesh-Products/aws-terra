@@ -230,7 +230,6 @@ jobs:
           TF_VAR_byzzer_email:    ${{ secrets.BYZZER_EMAIL }}
           TF_VAR_byzzer_password: ${{ secrets.BYZZER_PASSWORD }}
           TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
-          TF_VAR_byzzer_report:   ${{ vars.BYZZER_REPORT }}
           TF_VAR_raw_bucket_email: ${{ vars.RAW_BUCKET_EMAIL }}
 
       - name: Terraform Apply
