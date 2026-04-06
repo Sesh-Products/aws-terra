@@ -2,7 +2,7 @@ locals {
   ami_id = coalesce(var.ami_id, data.aws_ami.amazon_linux_arm[0].id)
 
   env_exports = join("\n", [
-    for k, v in var.environment_variables : "echo 'export ${k}=\"${v}\"' >> /etc/environment" if v != null
+    for k, v in var.environment_variables : "echo '${k}=${v}' >> /etc/environment" if v != null
   ])
 
   dnf_packages = length(var.packages) > 0 ? join(" ", var.packages) : ""
@@ -128,7 +128,9 @@ resource "aws_instance" "this" {
 
   # Set environment variables
   ${local.env_exports}
+  set -a
   source /etc/environment
+  set +a
 
   # Install boto3 and pip packages
   python3.12 -m pip install boto3 ${join(" ", var.pip_packages)}
