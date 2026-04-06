@@ -146,9 +146,11 @@ resource "aws_instance" "this" {
   
 EOF
   lifecycle {
-    ignore_changes = [user_data]  # ← prevents replacement on every apply
-  }
-
+  ignore_changes = [
+    user_data,  # env vars written once at launch
+    ami,        # prevents replacement when AWS releases a newer AMI
+  ]
+}
   tags = merge(var.tags, {
     Name = var.instance_name
   })
