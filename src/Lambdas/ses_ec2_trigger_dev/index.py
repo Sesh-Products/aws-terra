@@ -47,10 +47,9 @@ def handler(event, context):
             DocumentName = "AWS-RunShellScript",
             Parameters   = {
                 "commands": [
-                    "source /etc/environment",
-                    f"export BYZZER_REPORT='{report_name}'",
-                    "export PLAYWRIGHT_BROWSERS_PATH=/home/ec2-user/.playwright",
-                    "cd /home/ec2-user/scripts && python3.12 index.py"
+                    "source /etc/environment",          # ← add this
+                    "set -a && source /etc/environment && set +a",  # more reliable
+                    "python3.12 /home/ec2-user/scripts/index.py"
                 ]
             },
             Comment = f"Triggered by SES email - report: {report_name}"
