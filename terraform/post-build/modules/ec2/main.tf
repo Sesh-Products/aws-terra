@@ -145,12 +145,7 @@ resource "aws_instance" "this" {
   ${var.startup_script}
   
 EOF
-  lifecycle {
-  ignore_changes = [
-    ami,
-    user_data
-  ]
-}
+
   tags = merge(var.tags, {
     Name = var.instance_name
   })
