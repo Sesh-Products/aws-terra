@@ -566,7 +566,7 @@ def _resolve_and_update_snowflake(new_rows, matched_cols):
         if not input_col or input_col not in row.index:
             return None
         val = row[input_col]
-        return str(val).strip() if pd.notna(val) and str(val).strip() else None
+        return str(val).strip().upper() if pd.notna(val) and str(val).strip() else None
 
     conn = get_snowflake_connection()
     try:
