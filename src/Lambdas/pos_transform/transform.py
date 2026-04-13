@@ -6,7 +6,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from io import StringIO, BytesIO
 import boto3
-import openpyxl
+import re
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.backends import default_backend
 import snowflake.connector
@@ -477,19 +477,173 @@ def get_known_locations():
         conn.close()
 
 
+def normalize_string(val):
+    if not val or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    return re.sub(r'\s+', ' ', str(val).strip().lower())
+
+
+def _send_email(subject, body):
+    NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
+    if not NOTIFY_EMAIL:
+        return
+    try:
+        ses_client.send_email(
+            Source      = NOTIFY_EMAIL,
+            Destination = {"ToAddresses": [NOTIFY_EMAIL]},
+            Message     = {
+                "Subject": {"Data": subject},
+                "Body":    {"Text": {"Data": body}}
+            }
+        )
+        print(f"Email sent: {subject}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+
+def _get_or_create_id(cursor, table, name_col, id_col, name_val, extra_cols=None):
+    name_val_clean = str(name_val).strip()
+
+    cursor.execute(
+        f"SELECT {id_col} FROM SESH_METADATA.PUBLIC.{table} WHERE LOWER({name_col}) = LOWER(%s) LIMIT 1",
+        (name_val_clean,)
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+
+    # Insert new record
+    cols   = [name_col] + list((extra_cols or {}).keys())
+    vals   = [name_val_clean] + list((extra_cols or {}).values())
+    placeholders = ", ".join(["%s"] * len(vals))
+    col_str      = ", ".join(cols)
+
+    cursor.execute(
+        f"INSERT INTO SESH_METADATA.PUBLIC.{table} ({col_str}) VALUES ({placeholders})",
+        vals
+    )
+    # Fetch the newly created ID
+    cursor.execute(
+        f"SELECT {id_col} FROM SESH_METADATA.PUBLIC.{table} WHERE LOWER({name_col}) = LOWER(%s) LIMIT 1",
+        (name_val_clean,)
+    )
+    return cursor.fetchone()[0]
+
+
+def _resolve_and_update_snowflake(new_rows, matched_cols):
+    sf_to_input = {v: k for k, v in matched_cols.items()}
+
+    def get_val(row, sf_col):
+        input_col = sf_to_input.get(sf_col)
+        if not input_col or input_col not in row.index:
+            return None
+        val = row[input_col]
+        return str(val).strip() if pd.notna(val) and str(val).strip() else None
+
+    conn = get_snowflake_connection()
+    try:
+        cursor = conn.cursor()
+        actions_all = []
+
+        for _, row in new_rows.iterrows():
+            actions = []
+
+            # ── State ─────────────────────────────────────────────────────────
+            state_id  = None
+            state_val = get_val(row, 'state')
+            if state_val:
+                existing_state = cursor.execute(
+                    "SELECT state_id FROM SESH_METADATA.PUBLIC.dim_state WHERE LOWER(state_name) = LOWER(%s) LIMIT 1",
+                    (state_val,)
+                ).fetchone()
+                if existing_state:
+                    state_id = existing_state[0]
+                else:
+                    state_id = _get_or_create_id(cursor, "dim_state", "state_name", "state_id", state_val)
+                    actions.append(f"inserted state: {state_val}")
+
+            # ── County ────────────────────────────────────────────────────────
+            county_id  = None
+            county_val = get_val(row, 'county')
+            if county_val:
+                extra = {"state_id": state_id} if state_id else {}
+                existing_county = cursor.execute(
+                    "SELECT county_id FROM SESH_METADATA.PUBLIC.dim_county WHERE LOWER(county_name) = LOWER(%s) LIMIT 1",
+                    (county_val,)
+                ).fetchone()
+                if existing_county:
+                    county_id = existing_county[0]
+                else:
+                    county_id = _get_or_create_id(cursor, "dim_county", "county_name", "county_id", county_val, extra_cols=extra)
+                    actions.append(f"inserted county: {county_val}")
+
+            # ── City ──────────────────────────────────────────────────────────
+            city_id  = None
+            city_val = get_val(row, 'city')
+            if city_val:
+                extra = {}
+                if state_id:  extra["state_id"]  = state_id
+                existing_city = cursor.execute(
+                    "SELECT city_id FROM SESH_METADATA.PUBLIC.dim_city WHERE LOWER(city_name) = LOWER(%s) LIMIT 1",
+                    (city_val,)
+                ).fetchone()
+                if existing_city:
+                    city_id = existing_city[0]
+                else:
+                    city_id = _get_or_create_id(cursor, "dim_city", "city_name", "city_id", city_val, extra_cols=extra)
+                    actions.append(f"inserted city: {city_val}")
+
+            # ── Location ──────────────────────────────────────────────────────
+            loc_payload = {}
+            sf_to_loc_col = {
+                'loc_name'   : 'loc_name',
+                'store_code' : 'store_code',
+                'address'    : 'address',
+                'postal_code': 'postal_code',
+            }
+            for sf_col, loc_col in sf_to_loc_col.items():
+                val = get_val(row, sf_col)
+                if val:
+                    loc_payload[loc_col] = val
+
+            # Attach FK IDs for whatever we resolved
+            if city_id:   loc_payload['city_id']   = city_id
+            if state_id:  loc_payload['state_id']  = state_id
+            if county_id: loc_payload['county_id'] = county_id
+
+            if loc_payload:
+                cols         = ", ".join(loc_payload.keys())
+                placeholders = ", ".join(["%s"] * len(loc_payload))
+                cursor.execute(
+                    f"INSERT INTO SESH_METADATA.PUBLIC.dim_location ({cols}) VALUES ({placeholders})",
+                    list(loc_payload.values())
+                )
+                actions.append(f"inserted location: {loc_payload.get('loc_name', loc_payload)}")
+
+            actions_all.append({"row": {k: get_val(row, v) for k, v in matched_cols.items()}, "actions": actions})
+
+        conn.commit()
+        print(json.dumps({"event": "snowflake_updates_committed", "summary": str(actions_all)}))
+        return actions_all
+
+    except Exception as e:
+        conn.rollback()
+        print(json.dumps({"event": "snowflake_update_failed", "error": str(e)}))
+        raise
+    finally:
+        conn.close()
+
+
 def check_new_stores(df, store_name, s3_client):
-    """Dynamically check new stores based on whatever columns the input file has"""
     NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
     print(json.dumps({"event": "check_new_stores_called", "notify_email": NOTIFY_EMAIL, "store": store_name}))
 
-    # ── Load known locations from Snowflake ──────────────────────────────────
     try:
         known_df = get_known_locations()
     except Exception as e:
         print(f"Could not load known locations: {e}")
         return set()
 
-    # ── Define column mapping between input file and Snowflake ───────────────
     col_mapping = {
         'Store_Code' : 'store_code',
         'Store'      : 'loc_name',
@@ -499,77 +653,97 @@ def check_new_stores(df, store_name, s3_client):
         'County'     : 'county',
         'Postal_Code': 'postal_code',
     }
-    
+
     print(json.dumps({
-    "event": "check_new_stores_columns",
-    "df_columns": list(df.columns),
-    "looking_for": list(col_mapping.keys())
+        "event"      : "check_new_stores_columns",
+        "df_columns" : list(df.columns),
+        "looking_for": list(col_mapping.keys())
     }))
 
-    # ── Find which columns exist in both input file and known locations ───────
     matched_cols = {
         input_col: sf_col
         for input_col, sf_col in col_mapping.items()
         if input_col in df.columns and sf_col in known_df.columns
     }
-    print(json.dumps({
-    "event": "known_df_columns",
-    "columns": list(known_df.columns)
-    }))
+    print(json.dumps({"event": "known_df_columns", "columns": list(known_df.columns)}))
+
     if not matched_cols:
         print(f"No matching location columns found for {store_name} — skipping check")
         return set()
 
-    print(f"Checking new stores using columns: {list(matched_cols.keys())}")
+    input_cols = list(matched_cols.keys())
+    sf_cols    = list(matched_cols.values())
+    print(f"Checking new stores using columns: {input_cols}")
 
-    # ── Build composite key from available columns ───────────────────────────
     def make_key(row, cols):
         return "|".join(
             str(row[c]).strip().upper() if pd.notna(row[c]) else ""
             for c in cols
         )
 
-    input_cols  = list(matched_cols.keys())
-    sf_cols     = list(matched_cols.values())
+    input_keys = set(df.apply(lambda row: make_key(row, input_cols), axis=1))
+    known_keys = set(known_df.apply(lambda row: make_key(row, sf_cols), axis=1))
+    new_stores = {k for k in (input_keys - known_keys) if k.replace('|', '').strip()}
 
-    input_keys  = set(df.apply(lambda row: make_key(row, input_cols), axis=1))
-    known_keys  = set(known_df.apply(lambda row: make_key(row, sf_cols), axis=1))
+    print(f"Input: {len(input_keys)}, Known: {len(known_keys)}, New (exact): {len(new_stores)}")
 
-    new_stores  = input_keys - known_keys
-    # Remove empty keys
-    new_stores  = {k for k in new_stores if k.replace('|', '').strip()}
+    if not new_stores:
+        return set()
 
-    print(f"Input: {len(input_keys)}, Known: {len(known_keys)}, New: {len(new_stores)}")
+    print(json.dumps({"event": "new_stores_detected_rechecking", "store": store_name, "count": len(new_stores)}))
 
-    if new_stores:
-        print(json.dumps({"event": "new_stores_detected", "store": store_name,"new_stores": list(new_stores), "count": len(new_stores)}))
+    def make_norm_key(row, cols):
+        return "|".join(normalize_string(row[c]) for c in cols)
 
-        if NOTIFY_EMAIL:
-            try:
-                ses_client.send_email(
-                    Source      = NOTIFY_EMAIL,
-                    Destination = {"ToAddresses": [NOTIFY_EMAIL]},
-                    Message     = {
-                        "Subject": {
-                            "Data": f"⚠️ New Stores Detected — {store_name}"
-                        },
-                        "Body": {
-                            "Text": {
-                                "Data": f"New stores detected in {store_name} file.\n\n"
-                                        f"Matched on columns: {', '.join(input_cols)}\n\n"
-                                        f"New store keys:\n" +
-                                        "\n".join(sorted(new_stores)) +
-                                        f"\n\nTotal: {len(new_stores)}\n\n"
-                                        f"Transformation stopped. Please add to dim_location."
-                            }
-                        }
-                    }
-                )
-                print(f"Notification sent to {NOTIFY_EMAIL}")
-            except Exception as e:
-                print(f"Failed to send email: {e}")
-        raise ValueError(f"New stores detected: {new_stores}") 
-    return new_stores
+    input_norm = set(df.apply(lambda row: make_norm_key(row, input_cols), axis=1))
+    known_norm = set(known_df.apply(lambda row: make_norm_key(row, sf_cols), axis=1))
+    still_new  = {k for k in (input_norm - known_norm) if k.replace('|', '').strip()}
+
+    if not still_new:
+        print(json.dumps({"event": "location_exists_after_normalization", "store": store_name}))
+        _send_email(
+            subject=f"⚠️ Location Already Exists — {store_name}",
+            body=(
+                f"New stores were detected in the {store_name} file but matched existing "
+                f"Snowflake locations after normalizing (case/whitespace/punctuation).\n\n"
+                f"Matched on columns: {', '.join(input_cols)}\n\n"
+                f"Suspected duplicates:\n" +
+                "\n".join(sorted(new_stores)) +
+                "\n\nTransformation stopped. Please review dim_location for formatting inconsistencies."
+            )
+        )
+        raise ValueError(f"Location already exists after normalization: {new_stores}")
+
+    df['_norm_key'] = df.apply(lambda row: make_norm_key(row, input_cols), axis=1)
+    new_rows        = df[df['_norm_key'].isin(still_new)].copy()
+    new_rows.drop(columns=['_norm_key'], inplace=True)
+    df.drop(columns=['_norm_key'], inplace=True)
+
+    print(json.dumps({"event": "truly_new_stores", "store": store_name, "count": len(new_rows)}))
+
+    try:
+        update_summary = _resolve_and_update_snowflake(new_rows, matched_cols)
+    except Exception as e:
+        _send_email(
+            subject=f"❌ Failed to Update Snowflake — {store_name}",
+            body=f"New stores were detected for {store_name} but Snowflake update failed.\n\nError: {e}"
+        )
+        raise
+
+    summary_text = "\n".join(
+        f"  {item['row']} → {', '.join(item['actions']) or 'no actions'}"
+        for item in update_summary
+    )
+    _send_email(
+        subject=f"New Stores Added to Snowflake — {store_name}",
+        body=(
+            f"New stores were detected and inserted into Snowflake for {store_name}.\n\n"
+            f"Matched on columns: {', '.join(input_cols)}\n\n"
+            f"Updates:\n{summary_text}\n\n"
+        )
+    )
+
+    return set()
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
     try:
@@ -607,10 +781,7 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
 
         df_extracted = clean_postal_code(df_extracted)
 
-        new_stores = check_new_stores(df_extracted, store_name, s3_client)
-        if new_stores:
-            print(f"New stores detected — stopping transformation: {new_stores}")
-            return None  # ← stop here
+        check_new_stores(df_extracted, store_name, s3_client)
         
         base_name  = file_name.rsplit('.', 1)[0]
         output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
