@@ -660,15 +660,22 @@ def check_new_stores(df, store_name, s3_client):
         print(f"Could not load known locations: {e}")
         return set()
 
-    col_mapping = {
-        'Store_Code' : 'store_code',
-        'Store'      : 'loc_name',
-        'Address'    : 'address',
-        'City'       : 'city',
-        'State'      : 'state',
-        'County'     : 'county',
-        'Postal_Code': 'postal_code',
-    }
+    if store_name == "buc-ees":
+        col_mapping = {
+            'Store_Code' : 'store_code',
+            'Store'      : 'loc_name',
+            'Store_Name' : 'city',
+        }
+    else:
+        col_mapping = {
+            'Store_Code' : 'store_code',
+            'Store'      : 'loc_name',
+            'Address'    : 'address',
+            'City'       : 'city',
+            'State'      : 'state',
+            'County'     : 'county',
+            'Postal_Code': 'postal_code',
+        }
 
     print(json.dumps({
         "event"      : "check_new_stores_columns",
@@ -691,6 +698,14 @@ def check_new_stores(df, store_name, s3_client):
     sf_cols    = list(matched_cols.values())
     print(f"Checking new stores using columns: {input_cols}")
 
+    # ── Deduplicate to unique locations only ──────────────────────────────────
+    df_locations = df[input_cols].drop_duplicates().reset_index(drop=True)
+    print(json.dumps({
+        "event"           : "location_dedup",
+        "store"           : store_name,
+        "total_rows"      : len(df),
+        "unique_locations": len(df_locations)
+    }))
 
     def make_key(row, cols):
         return "|".join(
@@ -698,17 +713,18 @@ def check_new_stores(df, store_name, s3_client):
             for c in cols
         )
 
-    input_keys = set(df.apply(lambda row: make_key(row, input_cols), axis=1))
+    # ── Both use df_locations ─────────────────────────────────────────────────
+    input_keys = set(df_locations.apply(lambda row: make_key(row, input_cols), axis=1))
     known_keys = set(known_df.apply(lambda row: make_key(row, sf_cols), axis=1))
     new_stores = {k for k in (input_keys - known_keys) if k.replace('|', '').strip()}
 
-    print(f"Input: {len(input_keys)}, Known: {len(known_keys)}, New (exact): {len(new_stores)}")
+    print(f"Input: {len(input_keys)}, Known: {len(known_keys)}, New: {len(new_stores)}")
 
     if not new_stores:
         return set()
 
-    new_rows = df[
-        df.apply(lambda row: make_key(row, input_cols), axis=1).isin(new_stores)
+    new_rows = df_locations[
+        df_locations.apply(lambda row: make_key(row, input_cols), axis=1).isin(new_stores)
     ].copy()
 
     print(json.dumps({"event": "new_stores_to_insert", "store": store_name, "count": len(new_rows)}))
