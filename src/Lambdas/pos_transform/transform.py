@@ -1,4 +1,3 @@
-
 import os
 import json
 import pandas as pd
@@ -6,7 +5,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from io import StringIO, BytesIO
 import boto3
-import re
+import openpyxl
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.backends import default_backend
 import snowflake.connector
@@ -442,45 +441,6 @@ def clean_postal_code(df):
     df['Postal_Code'] = df['Postal_Code'].apply(normalize_zip)
     return df
 
-def _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val):
-    name_val_clean = str(name_val).strip()
-
-    cursor.execute(
-        f"SELECT {id_col} FROM SESH_METADATA.PUBLIC.{table} WHERE LOWER({name_col}) = LOWER(%s)",
-        (name_val_clean,)
-    )
-    rows = cursor.fetchall()
-
-    if len(rows) == 0:
-        return None
-
-    if len(rows) > 1:
-        duplicate_ids = [r[0] for r in rows]
-        print(json.dumps({
-            "event"   : "duplicate_records_detected",
-            "table"   : table,
-            "name_col": name_col,
-            "value"   : name_val_clean,
-            "ids"     : duplicate_ids
-        }))
-        _send_email(
-            subject=f"⚠️ Duplicate Records Found in {table}",
-            body=(
-                f"Duplicate records were detected in SESH_METADATA.PUBLIC.{table}.\n\n"
-                f"Column : {name_col}\n"
-                f"Value  : {name_val_clean}\n"
-                f"IDs    : {', '.join(str(i) for i in duplicate_ids)}\n\n"
-                f"Pipeline is continuing using the first record ({duplicate_ids[0]}). "
-                f"Please deduplicate this table immediately."
-            )
-        )
-        raise ValueError(
-            f"Duplicate records in {table} for {name_col}='{name_val_clean}'. "
-            f"IDs: {duplicate_ids}. Pipeline stopped."
-        )
-
-    return rows[0][0]
-
 def get_known_locations():
     """Load all location data from Snowflake dim_location joined with dim tables"""
     conn = get_snowflake_connection()
@@ -516,10 +476,101 @@ def get_known_locations():
         conn.close()
 
 
-def normalize_string(val):
-    if not val or (isinstance(val, float) and pd.isna(val)):
-        return ""
-    return re.sub(r'\s+', ' ', str(val).strip().lower())
+# ── Dimension lookup/insert helpers ─────────────────────────────────────────
+
+def _get_or_insert_state(cursor, state_name):
+    if not state_name:
+        return None
+    cursor.execute(
+        "SELECT state_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(state_name) = UPPER(%s)",
+        (state_name,)
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    cursor.execute(
+        "INSERT INTO SESH_METADATA.PUBLIC.dim_state (state_name) VALUES (%s)",
+        (state_name,)
+    )
+    cursor.execute(
+        "SELECT state_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(state_name) = UPPER(%s)",
+        (state_name,)
+    )
+    return cursor.fetchone()[0]
+
+
+def _get_or_insert_county(cursor, county_name, state_id):
+    if not county_name:
+        return None
+    cursor.execute(
+        """SELECT county_id FROM SESH_METADATA.PUBLIC.dim_county
+           WHERE UPPER(county_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
+        (county_name, state_id)
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    cursor.execute(
+        "INSERT INTO SESH_METADATA.PUBLIC.dim_county (county_name, state_id) VALUES (%s, %s)",
+        (county_name, state_id)
+    )
+    cursor.execute(
+        """SELECT county_id FROM SESH_METADATA.PUBLIC.dim_county
+           WHERE UPPER(county_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
+        (county_name, state_id)
+    )
+    return cursor.fetchone()[0]
+
+
+def _get_or_insert_city(cursor, city_name, state_id, postal_code):
+    if not city_name:
+        return None
+    cursor.execute(
+        """SELECT city_id FROM SESH_METADATA.PUBLIC.dim_city
+           WHERE UPPER(city_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
+        (city_name, state_id)
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    cursor.execute(
+        """INSERT INTO SESH_METADATA.PUBLIC.dim_city (city_name, state_id, postal_code)
+           VALUES (%s, %s, %s)""",
+        (city_name, state_id, postal_code)
+    )
+    cursor.execute(
+        """SELECT city_id FROM SESH_METADATA.PUBLIC.dim_city
+           WHERE UPPER(city_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
+        (city_name, state_id)
+    )
+    return cursor.fetchone()[0]
+
+
+def _insert_location(cursor, store_row):
+    state_id  = _get_or_insert_state(cursor, store_row.get("State"))
+    county_id = _get_or_insert_county(cursor, store_row.get("County"), state_id)
+    city_id   = _get_or_insert_city(
+        cursor,
+        store_row.get("City"),
+        state_id,
+        store_row.get("Postal_Code")
+    )
+
+    cursor.execute(
+        """INSERT INTO SESH_METADATA.PUBLIC.dim_location
+               (loc_name, store_code, address, city_id, state_id, county_id)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (
+            store_row.get("Store"),
+            store_row.get("Store_Code"),
+            store_row.get("Address"),
+            city_id,
+            state_id,
+            county_id,
+        )
+    )
+    cursor.execute("SELECT MAX(loc_id) FROM SESH_METADATA.PUBLIC.dim_location")
+    return cursor.fetchone()[0]
 
 
 def _send_email(subject, body):
@@ -532,134 +583,27 @@ def _send_email(subject, body):
             Destination = {"ToAddresses": [NOTIFY_EMAIL]},
             Message     = {
                 "Subject": {"Data": subject},
-                "Body":    {"Text": {"Data": body}}
-            }
+                "Body":    {"Text": {"Data": body}},
+            },
         )
         print(f"Email sent: {subject}")
     except Exception as e:
-        print(f"Failed to send email: {e}")
-
-
-def _get_or_create_id(cursor, table, name_col, id_col, name_val, extra_cols=None):
-    name_val_clean = str(name_val).strip()
-
-    existing_id = _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val_clean)
-    if existing_id is not None:
-        return existing_id
-
-    cols         = [name_col] + list((extra_cols or {}).keys())
-    vals         = [name_val_clean] + list((extra_cols or {}).values())
-    placeholders = ", ".join(["%s"] * len(vals))
-
-    cursor.execute(
-        f"INSERT INTO SESH_METADATA.PUBLIC.{table} ({', '.join(cols)}) VALUES ({placeholders})",
-        vals
-    )
-
-    return _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val_clean)
-
-def _resolve_and_update_snowflake(new_rows, matched_cols):
-    sf_to_input = {v: k for k, v in matched_cols.items()}
-
-    def get_val(row, sf_col):
-        input_col = sf_to_input.get(sf_col)
-        if not input_col or input_col not in row.index:
-            return None
-        val = row[input_col]
-        return str(val).strip().upper() if pd.notna(val) and str(val).strip() else None
-
-    conn = get_snowflake_connection()
-    try:
-        cursor = conn.cursor()
-        actions_all = []
-
-        for _, row in new_rows.iterrows():
-            actions = []
-
-            # ── State ─────────────────────────────────────────────────────────
-            state_id  = None
-            state_val = get_val(row, 'state')
-            if state_val:
-                state_id = _check_duplicates_and_fetch(cursor, "dim_state", "state_id", "state_name", state_val)
-                if state_id is None:
-                    state_id = _get_or_create_id(cursor, "dim_state", "state_name", "state_id", state_val)
-                    actions.append(f"inserted state: {state_val}")
-
-            # ── County ────────────────────────────────────────────────────────
-            county_id  = None
-            county_val = get_val(row, 'county')
-            if county_val:
-                county_id = _check_duplicates_and_fetch(cursor, "dim_county", "county_id", "county_name", county_val)
-                if county_id is None:
-                    extra     = {"state_id": state_id} if state_id else {}
-                    county_id = _get_or_create_id(cursor, "dim_county", "county_name", "county_id", county_val, extra_cols=extra)
-                    actions.append(f"inserted county: {county_val}")
-
-            # ── City ──────────────────────────────────────────────────────────
-            city_id  = None
-            city_val = get_val(row, 'city')
-            if city_val:
-                city_id = _check_duplicates_and_fetch(cursor, "dim_city", "city_id", "city_name", city_val)
-                if city_id is None:
-                    extra   = {"state_id": state_id} if state_id else {}
-                    city_id = _get_or_create_id(cursor, "dim_city", "city_name", "city_id", city_val, extra_cols=extra)
-                    actions.append(f"inserted city: {city_val}")
-
-            # ── Location ──────────────────────────────────────────────────────
-            loc_payload = {}
-            sf_to_loc_col = {
-                'loc_name'   : 'loc_name',
-                'store_code' : 'store_code',
-                'address'    : 'address',
-                'postal_code': 'postal_code',
-            }
-            for sf_col, loc_col in sf_to_loc_col.items():
-                val = get_val(row, sf_col)
-                if val:
-                    loc_payload[loc_col] = val
-                    if loc_col in ('LOC_NAME', 'STORE_CODE'):
-                        loc_payload[loc_col] = val.upper()
-                    else:
-                        loc_payload[loc_col] = val
-
-            # Attach FK IDs for whatever we resolved
-            if city_id:   loc_payload['city_id']   = city_id
-            if state_id:  loc_payload['state_id']  = state_id
-            if county_id: loc_payload['county_id'] = county_id
-
-            if loc_payload:
-                cols         = ", ".join(loc_payload.keys())
-                placeholders = ", ".join(["%s"] * len(loc_payload))
-                cursor.execute(
-                    f"INSERT INTO SESH_METADATA.PUBLIC.dim_location ({cols}) VALUES ({placeholders})",
-                    list(loc_payload.values())
-                )
-                actions.append(f"inserted location: {loc_payload.get('loc_name', loc_payload)}")
-
-            actions_all.append({"row": {k: get_val(row, v) for k, v in matched_cols.items()}, "actions": actions})
-
-        conn.commit()
-        print(json.dumps({"event": "snowflake_updates_committed", "summary": str(actions_all)}))
-        return actions_all
-
-    except Exception as e:
-        conn.rollback()
-        print(json.dumps({"event": "snowflake_update_failed", "error": str(e)}))
-        raise
-    finally:
-        conn.close()
+        print(f"Failed to send email '{subject}': {e}")
 
 
 def check_new_stores(df, store_name, s3_client):
     NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
-    print(json.dumps({"event": "check_new_stores_called", "notify_email": NOTIFY_EMAIL, "store": store_name}))
+    print(json.dumps({"event": "check_new_stores_called",
+                      "notify_email": NOTIFY_EMAIL, "store": store_name}))
 
+    # ── Load known locations ─────────────────────────────────────────────────
     try:
         known_df = get_known_locations()
     except Exception as e:
         print(f"Could not load known locations: {e}")
         return set()
 
+    # ── Column mapping: input file → Snowflake ───────────────────────────────
     col_mapping = {
         'Store_Code' : 'store_code',
         'Store'      : 'loc_name',
@@ -673,69 +617,136 @@ def check_new_stores(df, store_name, s3_client):
     print(json.dumps({
         "event"      : "check_new_stores_columns",
         "df_columns" : list(df.columns),
-        "looking_for": list(col_mapping.keys())
+        "looking_for": list(col_mapping.keys()),
     }))
+    print(json.dumps({"event": "known_df_columns", "columns": list(known_df.columns)}))
 
     matched_cols = {
         input_col: sf_col
         for input_col, sf_col in col_mapping.items()
         if input_col in df.columns and sf_col in known_df.columns
     }
-    print(json.dumps({"event": "known_df_columns", "columns": list(known_df.columns)}))
 
     if not matched_cols:
         print(f"No matching location columns found for {store_name} — skipping check")
         return set()
 
-    input_cols = list(matched_cols.keys())
-    sf_cols    = list(matched_cols.values())
-    print(f"Checking new stores using columns: {input_cols}")
+    print(f"Checking new stores using columns: {list(matched_cols.keys())}")
 
-
+    # ── Build composite keys ─────────────────────────────────────────────────
     def make_key(row, cols):
         return "|".join(
             str(row[c]).strip().upper() if pd.notna(row[c]) else ""
             for c in cols
         )
 
-    input_keys = set(df.apply(lambda row: make_key(row, input_cols), axis=1))
-    known_keys = set(known_df.apply(lambda row: make_key(row, sf_cols), axis=1))
-    new_stores = {k for k in (input_keys - known_keys) if k.replace('|', '').strip()}
+    input_cols = list(matched_cols.keys())
+    sf_cols    = list(matched_cols.values())
 
-    print(f"Input: {len(input_keys)}, Known: {len(known_keys)}, New (exact): {len(new_stores)}")
+    # De-duplicate input rows so we only attempt each unique store once
+    unique_input = df[input_cols].drop_duplicates()
 
-    if not new_stores:
+    input_keys = set(unique_input.apply(lambda r: make_key(r, input_cols), axis=1))
+    known_keys = set(known_df.apply(lambda r: make_key(r, sf_cols), axis=1))
+
+    new_store_keys = input_keys - known_keys
+    new_store_keys = {k for k in new_store_keys if k.replace("|", "").strip()}
+
+    print(f"Input unique stores: {len(input_keys)}, "
+          f"Known: {len(known_keys)}, New: {len(new_store_keys)}")
+
+    if not new_store_keys:
+        # Nothing to do — pipeline continues normally
         return set()
 
-    new_rows = df[
-        df.apply(lambda row: make_key(row, input_cols), axis=1).isin(new_stores)
-    ].copy()
+    # ── Attempt to insert each new store ────────────────────────────────────
+    print(json.dumps({"event": "new_stores_detected", "store": store_name,
+                      "new_stores": list(new_store_keys), "count": len(new_store_keys)}))
 
-    print(json.dumps({"event": "new_stores_to_insert", "store": store_name, "count": len(new_rows)}))
+    inserted_summaries = []   # lines for the success email
+    failed_summaries   = []   # lines for the failure email
 
+    conn = get_snowflake_connection()
     try:
-        update_summary = _resolve_and_update_snowflake(new_rows, matched_cols)
-    except Exception as e:
+        cursor = conn.cursor()
+
+        for _, row in unique_input.iterrows():
+            key = make_key(row, input_cols)
+            if key not in new_store_keys:
+                continue  # already known
+
+            store_row = {col: (row[col] if pd.notna(row[col]) else None)
+                         for col in input_cols}
+
+            try:
+                loc_id = _insert_location(cursor, store_row)
+                conn.commit()
+                summary = (
+                    f"  Store     : {store_row.get('Store') or store_row.get('Store_Code')}\n"
+                    f"  Store Code: {store_row.get('Store_Code')}\n"
+                    f"  Address   : {store_row.get('Address')}\n"
+                    f"  City      : {store_row.get('City')}\n"
+                    f"  State     : {store_row.get('State')}\n"
+                    f"  County    : {store_row.get('County')}\n"
+                    f"  ZIP       : {store_row.get('Postal_Code')}\n"
+                    f"  → loc_id  : {loc_id}"
+                )
+                inserted_summaries.append(summary)
+                print(json.dumps({"event": "new_store_inserted",
+                                  "store": store_name, "loc_id": loc_id,
+                                  "store_row": store_row}))
+
+            except Exception as insert_err:
+                conn.rollback()
+                summary = (
+                    f"  Store     : {store_row.get('Store') or store_row.get('Store_Code')}\n"
+                    f"  Store Code: {store_row.get('Store_Code')}\n"
+                    f"  Error     : {insert_err}"
+                )
+                failed_summaries.append(summary)
+                print(json.dumps({"event": "new_store_insert_failed",
+                                  "store": store_name,
+                                  "store_row": store_row,
+                                  "error": str(insert_err)}))
+
+    finally:
+        conn.close()
+
+    # ── Send success email for all inserted stores ───────────────────────────
+    if inserted_summaries:
         _send_email(
-            subject=f"❌ Failed to Update Snowflake — {store_name}",
-            body=f"New stores were detected for {store_name} but Snowflake update failed.\n\nError: {e}"
+            subject=f"✅ New Stores Added to Snowflake — {store_name}",
+            body=(
+                f"{len(inserted_summaries)} new store(s) were automatically added "
+                f"to dim_location for vendor '{store_name}'.\n\n"
+                + "\n\n".join(inserted_summaries)
+            ),
         )
-        raise
 
-    summary_text = "\n".join(
-        f"  {item['row']} → {', '.join(item['actions']) or 'no actions'}"
-        for item in update_summary
-    )
-    _send_email(
-        subject=f"New Stores Added to Snowflake — {store_name}",
-        body=(
-            f"New stores were detected and inserted into Snowflake for {store_name}.\n\n"
-            f"Matched on columns: {', '.join(input_cols)}\n\n"
-            f"Updates:\n{summary_text}\n\n"
+    # ── If any inserts failed, send failure email and stop this file ─────────
+    if failed_summaries:
+        _send_email(
+            subject=f"❌ New Store Insert Failed — {store_name}",
+            body=(
+                f"{len(failed_summaries)} new store(s) could NOT be inserted into "
+                f"dim_location for vendor '{store_name}'.\n"
+                f"This file has been skipped. Please add the stores manually.\n\n"
+                + "\n\n".join(failed_summaries)
+                + (
+                    f"\n\n── Successfully inserted in the same run ──\n"
+                    + "\n\n".join(inserted_summaries)
+                    if inserted_summaries else ""
+                )
+            ),
         )
-    )
+        raise ValueError(
+            f"New store insert failed for {len(failed_summaries)} store(s) in '{store_name}' "
+            f"— file skipped. See failure email for details."
+        )
 
+    # All inserts succeeded → pipeline continues
     return set()
+
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
     try:
@@ -774,7 +785,7 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         df_extracted = clean_postal_code(df_extracted)
 
         check_new_stores(df_extracted, store_name, s3_client)
-        
+
         base_name  = file_name.rsplit('.', 1)[0]
         output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
 
@@ -786,8 +797,10 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
                           "rows": len(df_extracted)}))
         return output_key
     except ValueError as e:
-        print(json.dumps({"event": "transform_stopped", "store": store_name,"file": file_name, "reason": str(e)}))
+        print(json.dumps({"event": "transform_stopped", "store": store_name,
+                          "file": file_name, "reason": str(e)}))
         raise  # ← STOP, bubble up to index.py handler
     except Exception as e:
-        print(json.dumps({"event": "transform_unexpected_error", "store": store_name,"file": file_name, "error": str(e)}))
+        print(json.dumps({"event": "transform_unexpected_error", "store": store_name,
+                          "file": file_name, "error": str(e)}))
         raise
