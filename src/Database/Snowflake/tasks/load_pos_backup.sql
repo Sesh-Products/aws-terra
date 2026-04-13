@@ -46,7 +46,13 @@ loc_matched AS (
         AND (c.state_id  IS NULL OR dl.state_id  = c.state_id)
         AND (c.county_id IS NULL OR dl.county_id = c.county_id)
         AND (c.ADDRESS   IS NULL OR UPPER(TRIM(dl.address)) = UPPER(TRIM(c.ADDRESS)))
-        AND dl.loc_type = 1
+        AND (c.STORE_NAME = dl.STORE_NAME)
+        AND dl.Loc_type = 1
+      )
+      OR
+      (
+        c.STORE_NAME IS NOT NULL
+        AND UPPER(TRIM(dl.loc_name)) = UPPER(TRIM(c.STORE_NAME))
       )
     )
 )
