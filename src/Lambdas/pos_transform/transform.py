@@ -399,7 +399,6 @@ def normalize_week_ending(df):
     
     def parse_date(val):
         val         = str(val).strip()
-        # date_format = os.environ.get('DATE_FORMAT')
         if len(val) == 6 and val.isdigit():
             return pd.to_datetime(val + '1', format='%Y%W%w')
 
@@ -407,6 +406,7 @@ def normalize_week_ending(df):
     if not pd.api.types.is_datetime64_any_dtype(df['Trans_date']):
         try:
             df['Trans_date'] = df['Trans_date'].apply(parse_date)
+            df = df[df['Trans_date'] == df['Trans_date'].max()]
         except Exception as e:
             print(json.dumps({"event": "date_parse_failed", "error": str(e)}))
             raise  
@@ -442,7 +442,6 @@ def clean_postal_code(df):
     return df
 
 def get_known_locations():
-    """Load all location data from Snowflake dim_location joined with dim tables"""
     conn = get_snowflake_connection()
     try:
         cursor = conn.cursor()
@@ -475,9 +474,6 @@ def get_known_locations():
     finally:
         conn.close()
 
-
-# ── Dimension lookup/insert helpers ─────────────────────────────────────────
-
 def _get_or_insert_state(cursor, state_name):
     if not state_name:
         return None
@@ -500,7 +496,6 @@ def _get_or_insert_state(cursor, state_name):
 
 
 def _get_or_insert_county(cursor, county_name):
-
     if not county_name:
         return None
     cursor.execute(
@@ -522,7 +517,6 @@ def _get_or_insert_county(cursor, county_name):
 
 
 def _get_or_insert_city(cursor, city_name, postal_code):
-
     if not city_name:
         return None
     cursor.execute(
@@ -544,7 +538,6 @@ def _get_or_insert_city(cursor, city_name, postal_code):
 
 
 def _insert_location(cursor, store_row):
-   
     state_id  = _get_or_insert_state(cursor, store_row["State"])   if "State"   in store_row else None
     county_id = _get_or_insert_county(cursor, store_row["County"]) if "County"  in store_row else None
     city_id   = _get_or_insert_city(
@@ -552,13 +545,15 @@ def _insert_location(cursor, store_row):
     ) if "City" in store_row else None
 
     col_val_pairs = [
-        ("Loc_type", 1),  # retail store default
-        ("Div_id",   1),  # division default
+        ("Loc_type", 1),  
+        ("Div_id",   1),
     ]
 
     for input_col, sf_col in [("Store", "Loc_name"), ("Store_Code", "Store_code"), ("Address", "Address")]:
         val = store_row.get(input_col)
         if val is not None:
+            if sf_col == "Loc_name":
+                val = str(val).upper()
             col_val_pairs.append((sf_col, val))
 
     if state_id  is not None: col_val_pairs.append(("State_id",  state_id))
@@ -578,7 +573,6 @@ def _insert_location(cursor, store_row):
 
 
 def _send_email(subject, body):
-    """Fire-and-forget SES email; swallows send errors so they never block the pipeline."""
     NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
     if not NOTIFY_EMAIL:
         return
@@ -601,14 +595,12 @@ def check_new_stores(df, store_name, s3_client):
     print(json.dumps({"event": "check_new_stores_called",
                       "notify_email": NOTIFY_EMAIL, "store": store_name}))
 
-    # ── Load known locations ─────────────────────────────────────────────────
     try:
         known_df = get_known_locations()
     except Exception as e:
         print(f"Could not load known locations: {e}")
         return set()
 
-    # ── Column mapping: input file → Snowflake ───────────────────────────────
     col_mapping = {
         'Store_Code' : 'store_code',
         'Store'      : 'loc_name',
@@ -664,8 +656,8 @@ def check_new_stores(df, store_name, s3_client):
     print(json.dumps({"event": "new_stores_detected", "store": store_name,
                       "new_stores": list(new_store_keys), "count": len(new_store_keys)}))
 
-    inserted_summaries = []  
-    failed_summaries   = []  
+    inserted_summaries = [] 
+    failed_summaries   = []
 
     conn = get_snowflake_connection()
     try:
@@ -716,7 +708,6 @@ def check_new_stores(df, store_name, s3_client):
     finally:
         conn.close()
 
-    # ── Send success email for all inserted stores ───────────────────────────
     if inserted_summaries:
         _send_email(
             subject=f"✅ New Stores Added to Snowflake — {store_name}",
@@ -726,8 +717,6 @@ def check_new_stores(df, store_name, s3_client):
                 + "\n\n".join(inserted_summaries)
             ),
         )
-
-    # ── If any inserts failed, send failure email and stop this file ─────────
     if failed_summaries:
         _send_email(
             subject=f"❌ New Store Insert Failed — {store_name}",
