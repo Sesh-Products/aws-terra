@@ -687,6 +687,14 @@ def check_new_stores(df, store_name, s3_client):
     sf_cols    = list(matched_cols.values())
     print(f"Checking new stores using columns: {input_cols}")
 
+    df_locations = df[input_cols].drop_duplicates().reset_index(drop=True)
+    print(json.dumps({
+        "event"           : "location_dedup",
+        "store"           : store_name,
+        "total_rows"      : len(df),
+        "unique_locations": len(df_locations)
+    }))
+
     def make_key(row, cols):
         return "|".join(
             str(row[c]).strip().upper() if pd.notna(row[c]) else ""
@@ -702,36 +710,11 @@ def check_new_stores(df, store_name, s3_client):
     if not new_stores:
         return set()
 
-    print(json.dumps({"event": "new_stores_detected_rechecking", "store": store_name, "count": len(new_stores)}))
+    new_rows = df_locations[
+        df_locations.apply(lambda row: make_key(row, input_cols), axis=1).isin(new_stores)
+    ].copy()
 
-    def make_norm_key(row, cols):
-        return "|".join(normalize_string(row[c]) for c in cols)
-
-    input_norm = set(df.apply(lambda row: make_norm_key(row, input_cols), axis=1))
-    known_norm = set(known_df.apply(lambda row: make_norm_key(row, sf_cols), axis=1))
-    still_new  = {k for k in (input_norm - known_norm) if k.replace('|', '').strip()}
-
-    if not still_new:
-        print(json.dumps({"event": "location_exists_after_normalization", "store": store_name}))
-        _send_email(
-            subject=f"⚠️ Location Already Exists — {store_name}",
-            body=(
-                f"New stores were detected in the {store_name} file but matched existing "
-                f"Snowflake locations after normalizing (case/whitespace/punctuation).\n\n"
-                f"Matched on columns: {', '.join(input_cols)}\n\n"
-                f"Suspected duplicates:\n" +
-                "\n".join(sorted(new_stores)) +
-                "\n\nTransformation stopped. Please review dim_location for formatting inconsistencies."
-            )
-        )
-        raise ValueError(f"Location already exists after normalization: {new_stores}")
-
-    df['_norm_key'] = df.apply(lambda row: make_norm_key(row, input_cols), axis=1)
-    new_rows        = df[df['_norm_key'].isin(still_new)].copy()
-    new_rows.drop(columns=['_norm_key'], inplace=True)
-    df.drop(columns=['_norm_key'], inplace=True)
-
-    print(json.dumps({"event": "truly_new_stores", "store": store_name, "count": len(new_rows)}))
+    print(json.dumps({"event": "new_stores_to_insert", "store": store_name, "count": len(new_rows)}))
 
     try:
         update_summary = _resolve_and_update_snowflake(new_rows, matched_cols)
