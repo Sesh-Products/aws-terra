@@ -482,98 +482,103 @@ def _get_or_insert_state(cursor, state_name):
     if not state_name:
         return None
     cursor.execute(
-        "SELECT state_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(state_name) = UPPER(%s)",
+        "SELECT State_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(State_name) = UPPER(%s)",
         (state_name,)
     )
     row = cursor.fetchone()
     if row:
         return row[0]
     cursor.execute(
-        "INSERT INTO SESH_METADATA.PUBLIC.dim_state (state_name) VALUES (%s)",
+        "INSERT INTO SESH_METADATA.PUBLIC.dim_state (State_name) VALUES (%s)",
         (state_name,)
     )
     cursor.execute(
-        "SELECT state_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(state_name) = UPPER(%s)",
+        "SELECT State_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(State_name) = UPPER(%s)",
         (state_name,)
     )
     return cursor.fetchone()[0]
 
 
-def _get_or_insert_county(cursor, county_name, state_id):
+def _get_or_insert_county(cursor, county_name):
+
     if not county_name:
         return None
     cursor.execute(
-        """SELECT county_id FROM SESH_METADATA.PUBLIC.dim_county
-           WHERE UPPER(county_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
-        (county_name, state_id)
+        "SELECT County_id FROM SESH_METADATA.PUBLIC.dim_county WHERE UPPER(County_name) = UPPER(%s)",
+        (county_name,)
     )
     row = cursor.fetchone()
     if row:
         return row[0]
     cursor.execute(
-        "INSERT INTO SESH_METADATA.PUBLIC.dim_county (county_name, state_id) VALUES (%s, %s)",
-        (county_name, state_id)
+        "INSERT INTO SESH_METADATA.PUBLIC.dim_county (County_name) VALUES (%s)",
+        (county_name,)
     )
     cursor.execute(
-        """SELECT county_id FROM SESH_METADATA.PUBLIC.dim_county
-           WHERE UPPER(county_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
-        (county_name, state_id)
+        "SELECT County_id FROM SESH_METADATA.PUBLIC.dim_county WHERE UPPER(County_name) = UPPER(%s)",
+        (county_name,)
     )
     return cursor.fetchone()[0]
 
 
-def _get_or_insert_city(cursor, city_name, state_id, postal_code):
+def _get_or_insert_city(cursor, city_name, postal_code):
+
     if not city_name:
         return None
     cursor.execute(
-        """SELECT city_id FROM SESH_METADATA.PUBLIC.dim_city
-           WHERE UPPER(city_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
-        (city_name, state_id)
+        "SELECT City_id FROM SESH_METADATA.PUBLIC.dim_city WHERE UPPER(City_name) = UPPER(%s)",
+        (city_name,)
     )
     row = cursor.fetchone()
     if row:
         return row[0]
     cursor.execute(
-        """INSERT INTO SESH_METADATA.PUBLIC.dim_city (city_name, state_id, postal_code)
-           VALUES (%s, %s, %s)""",
-        (city_name, state_id, postal_code)
+        "INSERT INTO SESH_METADATA.PUBLIC.dim_city (City_name, Postal_code) VALUES (%s, %s)",
+        (city_name, postal_code)
     )
     cursor.execute(
-        """SELECT city_id FROM SESH_METADATA.PUBLIC.dim_city
-           WHERE UPPER(city_name) = UPPER(%s) AND (state_id = %s OR state_id IS NULL)""",
-        (city_name, state_id)
+        "SELECT City_id FROM SESH_METADATA.PUBLIC.dim_city WHERE UPPER(City_name) = UPPER(%s)",
+        (city_name,)
     )
     return cursor.fetchone()[0]
 
 
 def _insert_location(cursor, store_row):
-    state_id  = _get_or_insert_state(cursor, store_row.get("State"))
-    county_id = _get_or_insert_county(cursor, store_row.get("County"), state_id)
+   
+    state_id  = _get_or_insert_state(cursor, store_row["State"])   if "State"   in store_row else None
+    county_id = _get_or_insert_county(cursor, store_row["County"]) if "County"  in store_row else None
     city_id   = _get_or_insert_city(
-        cursor,
-        store_row.get("City"),
-        state_id,
-        store_row.get("Postal_Code")
-    )
+        cursor, store_row["City"], store_row.get("Postal_Code")
+    ) if "City" in store_row else None
+
+    col_val_pairs = [
+        ("Loc_type", 1),  # retail store default
+        ("Div_id",   1),  # division default
+    ]
+
+    for input_col, sf_col in [("Store", "Loc_name"), ("Store_Code", "Store_code"), ("Address", "Address")]:
+        val = store_row.get(input_col)
+        if val is not None:
+            col_val_pairs.append((sf_col, val))
+
+    if state_id  is not None: col_val_pairs.append(("State_id",  state_id))
+    if county_id is not None: col_val_pairs.append(("County_id", county_id))
+    if city_id   is not None: col_val_pairs.append(("City_id",   city_id))
+
+    cols   = ", ".join(c for c, _ in col_val_pairs)
+    params = ", ".join("%s" for _ in col_val_pairs)
+    values = [v for _, v in col_val_pairs]
 
     cursor.execute(
-        """INSERT INTO SESH_METADATA.PUBLIC.dim_location
-               (loc_name, store_code, address, city_id, state_id, county_id)
-           VALUES (%s, %s, %s, %s, %s, %s)""",
-        (
-            store_row.get("Store"),
-            store_row.get("Store_Code"),
-            store_row.get("Address"),
-            city_id,
-            state_id,
-            county_id,
-        )
+        f"INSERT INTO SESH_METADATA.PUBLIC.dim_location ({cols}) VALUES ({params})",
+        values
     )
-    cursor.execute("SELECT MAX(loc_id) FROM SESH_METADATA.PUBLIC.dim_location")
+    cursor.execute("SELECT MAX(Loc_id) FROM SESH_METADATA.PUBLIC.dim_location")
     return cursor.fetchone()[0]
 
 
 def _send_email(subject, body):
+    """Fire-and-forget SES email; swallows send errors so they never block the pipeline."""
     NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
     if not NOTIFY_EMAIL:
         return
@@ -633,7 +638,6 @@ def check_new_stores(df, store_name, s3_client):
 
     print(f"Checking new stores using columns: {list(matched_cols.keys())}")
 
-    # ── Build composite keys ─────────────────────────────────────────────────
     def make_key(row, cols):
         return "|".join(
             str(row[c]).strip().upper() if pd.notna(row[c]) else ""
@@ -643,7 +647,6 @@ def check_new_stores(df, store_name, s3_client):
     input_cols = list(matched_cols.keys())
     sf_cols    = list(matched_cols.values())
 
-    # De-duplicate input rows so we only attempt each unique store once
     unique_input = df[input_cols].drop_duplicates()
 
     input_keys = set(unique_input.apply(lambda r: make_key(r, input_cols), axis=1))
@@ -656,15 +659,13 @@ def check_new_stores(df, store_name, s3_client):
           f"Known: {len(known_keys)}, New: {len(new_store_keys)}")
 
     if not new_store_keys:
-        # Nothing to do — pipeline continues normally
         return set()
 
-    # ── Attempt to insert each new store ────────────────────────────────────
     print(json.dumps({"event": "new_stores_detected", "store": store_name,
                       "new_stores": list(new_store_keys), "count": len(new_store_keys)}))
 
-    inserted_summaries = []   # lines for the success email
-    failed_summaries   = []   # lines for the failure email
+    inserted_summaries = []  
+    failed_summaries   = []  
 
     conn = get_snowflake_connection()
     try:
@@ -675,8 +676,11 @@ def check_new_stores(df, store_name, s3_client):
             if key not in new_store_keys:
                 continue  # already known
 
-            store_row = {col: (row[col] if pd.notna(row[col]) else None)
-                         for col in input_cols}
+            store_row = {
+                col: row[col]
+                for col in input_cols
+                if pd.notna(row[col]) and str(row[col]).strip() != ""
+            }
 
             try:
                 loc_id = _insert_location(cursor, store_row)
@@ -744,7 +748,6 @@ def check_new_stores(df, store_name, s3_client):
             f"— file skipped. See failure email for details."
         )
 
-    # All inserts succeeded → pipeline continues
     return set()
 
 
@@ -776,7 +779,6 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         if missing:
             df_extracted = handle_missing(df_extracted, missing)
 
-        # ← Add this block to clean numeric columns
         numeric_cols = ["EQ_Units", "Sales", "EQ Units"]
         for col in numeric_cols:
             if col in df_extracted.columns:
