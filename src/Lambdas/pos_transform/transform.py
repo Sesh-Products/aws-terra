@@ -442,6 +442,41 @@ def clean_postal_code(df):
     df['Postal_Code'] = df['Postal_Code'].apply(normalize_zip)
     return df
 
+def _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val):
+    name_val_clean = str(name_val).strip()
+
+    cursor.execute(
+        f"SELECT {id_col} FROM SESH_METADATA.PUBLIC.{table} WHERE LOWER({name_col}) = LOWER(%s)",
+        (name_val_clean,)
+    )
+    rows = cursor.fetchall()
+
+    if len(rows) == 0:
+        return None
+
+    if len(rows) > 1:
+        duplicate_ids = [r[0] for r in rows]
+        print(json.dumps({
+            "event"   : "duplicate_records_detected",
+            "table"   : table,
+            "name_col": name_col,
+            "value"   : name_val_clean,
+            "ids"     : duplicate_ids
+        }))
+        _send_email(
+            subject=f"⚠️ Duplicate Records Found in {table}",
+            body=(
+                f"Duplicate records were detected in SESH_METADATA.PUBLIC.{table}.\n\n"
+                f"Column : {name_col}\n"
+                f"Value  : {name_val_clean}\n"
+                f"IDs    : {', '.join(str(i) for i in duplicate_ids)}\n\n"
+                f"Pipeline is continuing using the first record ({duplicate_ids[0]}). "
+                f"Please deduplicate this table immediately."
+            )
+        )
+
+    return rows[0][0]
+
 def get_known_locations():
     """Load all location data from Snowflake dim_location joined with dim tables"""
     conn = get_snowflake_connection()
@@ -504,17 +539,12 @@ def _send_email(subject, body):
 def _get_or_create_id(cursor, table, name_col, id_col, name_val, extra_cols=None):
     name_val_clean = str(name_val).strip()
 
-    cursor.execute(
-        f"SELECT {id_col} FROM SESH_METADATA.PUBLIC.{table} WHERE LOWER({name_col}) = LOWER(%s) LIMIT 1",
-        (name_val_clean,)
-    )
-    row = cursor.fetchone()
-    if row:
-        return row[0]
+    existing_id = _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val_clean)
+    if existing_id is not None:
+        return existing_id
 
-    # Insert new record
-    cols   = [name_col] + list((extra_cols or {}).keys())
-    vals   = [name_val_clean] + list((extra_cols or {}).values())
+    cols         = [name_col] + list((extra_cols or {}).keys())
+    vals         = [name_val_clean] + list((extra_cols or {}).values())
     placeholders = ", ".join(["%s"] * len(vals))
     col_str      = ", ".join(cols)
 
@@ -522,13 +552,8 @@ def _get_or_create_id(cursor, table, name_col, id_col, name_val, extra_cols=None
         f"INSERT INTO SESH_METADATA.PUBLIC.{table} ({col_str}) VALUES ({placeholders})",
         vals
     )
-    # Fetch the newly created ID
-    cursor.execute(
-        f"SELECT {id_col} FROM SESH_METADATA.PUBLIC.{table} WHERE LOWER({name_col}) = LOWER(%s) LIMIT 1",
-        (name_val_clean,)
-    )
-    return cursor.fetchone()[0]
 
+    return _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val_clean)
 
 def _resolve_and_update_snowflake(new_rows, matched_cols):
     sf_to_input = {v: k for k, v in matched_cols.items()}
@@ -552,13 +577,8 @@ def _resolve_and_update_snowflake(new_rows, matched_cols):
             state_id  = None
             state_val = get_val(row, 'state')
             if state_val:
-                existing_state = cursor.execute(
-                    "SELECT state_id FROM SESH_METADATA.PUBLIC.dim_state WHERE LOWER(state_name) = LOWER(%s) LIMIT 1",
-                    (state_val,)
-                ).fetchone()
-                if existing_state:
-                    state_id = existing_state[0]
-                else:
+                state_id = _check_duplicates_and_fetch(cursor, "dim_state", "state_id", "state_name", state_val)
+                if not state_id:
                     state_id = _get_or_create_id(cursor, "dim_state", "state_name", "state_id", state_val)
                     actions.append(f"inserted state: {state_val}")
 
@@ -566,30 +586,20 @@ def _resolve_and_update_snowflake(new_rows, matched_cols):
             county_id  = None
             county_val = get_val(row, 'county')
             if county_val:
-                extra = {"state_id": state_id} if state_id else {}
-                existing_county = cursor.execute(
-                    "SELECT county_id FROM SESH_METADATA.PUBLIC.dim_county WHERE LOWER(county_name) = LOWER(%s) LIMIT 1",
-                    (county_val,)
-                ).fetchone()
-                if existing_county:
-                    county_id = existing_county[0]
-                else:
+                county_id = _check_duplicates_and_fetch(cursor, "dim_county", "county_id", "county_name", county_val)
+                if not county_id:
+                    extra     = {"state_id": state_id} if state_id else {}
                     county_id = _get_or_create_id(cursor, "dim_county", "county_name", "county_id", county_val, extra_cols=extra)
                     actions.append(f"inserted county: {county_val}")
+
 
             # ── City ──────────────────────────────────────────────────────────
             city_id  = None
             city_val = get_val(row, 'city')
             if city_val:
-                extra = {}
-                if state_id:  extra["state_id"]  = state_id
-                existing_city = cursor.execute(
-                    "SELECT city_id FROM SESH_METADATA.PUBLIC.dim_city WHERE LOWER(city_name) = LOWER(%s) LIMIT 1",
-                    (city_val,)
-                ).fetchone()
-                if existing_city:
-                    city_id = existing_city[0]
-                else:
+                city_id = _check_duplicates_and_fetch(cursor, "dim_city", "city_id", "city_name", city_val)
+                if not city_id:
+                    extra   = {"state_id": state_id} if state_id else {}
                     city_id = _get_or_create_id(cursor, "dim_city", "city_name", "city_id", city_val, extra_cols=extra)
                     actions.append(f"inserted city: {city_val}")
 

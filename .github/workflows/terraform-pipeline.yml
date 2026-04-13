@@ -5,6 +5,8 @@ on:
     branches:
       - main
   pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       environment:
@@ -96,6 +98,7 @@ jobs:
             }
 
       - name: Terraform Apply
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: terraform apply -auto-approve -input=false pre-build.tfplan
 
       # - name: Terraform Destroy
@@ -233,6 +236,7 @@ jobs:
           TF_VAR_raw_bucket_email: ${{ secrets.RAW_BUCKET_EMAIL }}
 
       - name: Terraform Apply
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: terraform apply -auto-approve -input=false post-build.tfplan
         env:
           # ── Must match Plan env vars exactly ──────────────────────────────
