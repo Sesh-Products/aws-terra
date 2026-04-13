@@ -546,7 +546,6 @@ def _insert_location(cursor, store_row):
 
     col_val_pairs = [
         ("Loc_type", 1),  
-        ("Div_id",   1),
     ]
 
     for input_col, sf_col in [("Store", "Loc_name"), ("Store_Code", "Store_code"), ("Address", "Address")]:
