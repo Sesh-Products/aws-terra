@@ -617,6 +617,10 @@ def _resolve_and_update_snowflake(new_rows, matched_cols):
                 val = get_val(row, sf_col)
                 if val:
                     loc_payload[loc_col] = val
+                    if loc_col in ('LOC_NAME', 'STORE_CODE'):
+                        loc_payload[loc_col] = val.upper()
+                    else:
+                        loc_payload[loc_col] = val
 
             # Attach FK IDs for whatever we resolved
             if city_id:   loc_payload['city_id']   = city_id
