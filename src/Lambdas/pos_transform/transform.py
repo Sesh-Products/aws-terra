@@ -660,22 +660,16 @@ def check_new_stores(df, store_name, s3_client):
         print(f"Could not load known locations: {e}")
         return set()
 
-    if store_name == "buc-ees":
-        col_mapping = {
-            'Store_Code' : 'store_code',
-            'Store'      : 'loc_name',
-            'Store_Name' : 'city',
-        }
-    else:
-        col_mapping = {
-            'Store_Code' : 'store_code',
-            'Store'      : 'loc_name',
-            'Address'    : 'address',
-            'City'       : 'city',
-            'State'      : 'state',
-            'County'     : 'county',
-            'Postal_Code': 'postal_code',
-        }
+    col_mapping = {
+        'Store_Code' : 'store_code',
+        'Store'      : 'loc_name',
+        'Store_Name' : 'city',       # buc-ees — Store_Name is the city
+        'Address'    : 'address',
+        'City'       : 'city',       # qt — City is the city
+        'State'      : 'state',
+        'County'     : 'county',
+        'Postal_Code': 'postal_code',
+    }
 
     print(json.dumps({
         "event"      : "check_new_stores_columns",
@@ -713,7 +707,6 @@ def check_new_stores(df, store_name, s3_client):
             for c in cols
         )
 
-    # ── Both use df_locations ─────────────────────────────────────────────────
     input_keys = set(df_locations.apply(lambda row: make_key(row, input_cols), axis=1))
     known_keys = set(known_df.apply(lambda row: make_key(row, sf_cols), axis=1))
     new_stores = {k for k in (input_keys - known_keys) if k.replace('|', '').strip()}
