@@ -691,13 +691,6 @@ def check_new_stores(df, store_name, s3_client):
     sf_cols    = list(matched_cols.values())
     print(f"Checking new stores using columns: {input_cols}")
 
-    df_locations = df[input_cols].drop_duplicates().reset_index(drop=True)
-    print(json.dumps({
-        "event"           : "location_dedup",
-        "store"           : store_name,
-        "total_rows"      : len(df),
-        "unique_locations": len(df_locations)
-    }))
 
     def make_key(row, cols):
         return "|".join(
@@ -714,8 +707,8 @@ def check_new_stores(df, store_name, s3_client):
     if not new_stores:
         return set()
 
-    new_rows = df_locations[
-        df_locations.apply(lambda row: make_key(row, input_cols), axis=1).isin(new_stores)
+    new_rows = df[
+        df.apply(lambda row: make_key(row, input_cols), axis=1).isin(new_stores)
     ].copy()
 
     print(json.dumps({"event": "new_stores_to_insert", "store": store_name, "count": len(new_rows)}))
