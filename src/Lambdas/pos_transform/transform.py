@@ -474,6 +474,10 @@ def _check_duplicates_and_fetch(cursor, table, id_col, name_col, name_val):
                 f"Please deduplicate this table immediately."
             )
         )
+        raise ValueError(
+            f"Duplicate records in {table} for {name_col}='{name_val_clean}'. "
+            f"IDs: {duplicate_ids}. Pipeline stopped."
+        )
 
     return rows[0][0]
 
@@ -546,10 +550,9 @@ def _get_or_create_id(cursor, table, name_col, id_col, name_val, extra_cols=None
     cols         = [name_col] + list((extra_cols or {}).keys())
     vals         = [name_val_clean] + list((extra_cols or {}).values())
     placeholders = ", ".join(["%s"] * len(vals))
-    col_str      = ", ".join(cols)
 
     cursor.execute(
-        f"INSERT INTO SESH_METADATA.PUBLIC.{table} ({col_str}) VALUES ({placeholders})",
+        f"INSERT INTO SESH_METADATA.PUBLIC.{table} ({', '.join(cols)}) VALUES ({placeholders})",
         vals
     )
 
@@ -578,7 +581,7 @@ def _resolve_and_update_snowflake(new_rows, matched_cols):
             state_val = get_val(row, 'state')
             if state_val:
                 state_id = _check_duplicates_and_fetch(cursor, "dim_state", "state_id", "state_name", state_val)
-                if not state_id:
+                if state_id is None:
                     state_id = _get_or_create_id(cursor, "dim_state", "state_name", "state_id", state_val)
                     actions.append(f"inserted state: {state_val}")
 
@@ -587,18 +590,17 @@ def _resolve_and_update_snowflake(new_rows, matched_cols):
             county_val = get_val(row, 'county')
             if county_val:
                 county_id = _check_duplicates_and_fetch(cursor, "dim_county", "county_id", "county_name", county_val)
-                if not county_id:
+                if county_id is None:
                     extra     = {"state_id": state_id} if state_id else {}
                     county_id = _get_or_create_id(cursor, "dim_county", "county_name", "county_id", county_val, extra_cols=extra)
                     actions.append(f"inserted county: {county_val}")
-
 
             # ── City ──────────────────────────────────────────────────────────
             city_id  = None
             city_val = get_val(row, 'city')
             if city_val:
                 city_id = _check_duplicates_and_fetch(cursor, "dim_city", "city_id", "city_name", city_val)
-                if not city_id:
+                if city_id is None:
                     extra   = {"state_id": state_id} if state_id else {}
                     city_id = _get_or_create_id(cursor, "dim_city", "city_name", "city_id", city_val, extra_cols=extra)
                     actions.append(f"inserted city: {city_val}")
