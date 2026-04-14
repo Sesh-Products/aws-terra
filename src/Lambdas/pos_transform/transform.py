@@ -737,6 +737,30 @@ def check_new_stores(df, store_name, s3_client):
 
     return set()
 
+def get_bucees_loaded_dates():
+
+    conn = get_snowflake_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT TOP 5 TRANS_DATE
+            FROM SESH_METADATA.PUBLIC.fact_pos f
+            JOIN SESH_METADATA.PUBLIC.dim_location l ON f.LOC_ID = l.LOC_ID
+            WHERE UPPER(l.LOC_NAME) = 'BUC-EE''S'
+            ORDER BY TRANS_DATE DESC
+        """)
+        rows = cursor.fetchall()
+        loaded_dates = {pd.to_datetime(r[0]) for r in rows if r[0]}
+        print(json.dumps({
+            "event"        : "bucees_loaded_dates",
+            "loaded_dates" : [str(d) for d in sorted(loaded_dates, reverse=True)]
+        }))
+        return loaded_dates
+    except Exception as e:
+        print(json.dumps({"event": "bucees_loaded_dates_failed", "error": str(e)}))
+        return set()
+    finally:
+        conn.close()
 
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
     try:
@@ -774,9 +798,35 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         df_extracted = clean_postal_code(df_extracted)
 
         check_new_stores(df_extracted, store_name, s3_client)
+        
         if store_name == "buc-ees":
-            df_extracted = df_extracted[df_extracted['Trans_date'] == df_extracted['Trans_date'].max()].copy()
-            print(json.dumps({"event": "buc_ees_latest_week_filter", "rows_kept": len(df_extracted)}))
+            loaded_dates = get_bucees_loaded_dates()
+
+            # Get distinct Trans_dates from current file after week ending calc
+            file_dates = set(pd.to_datetime(df_extracted['Trans_date'].unique()))
+
+            print(json.dumps({
+                "event"      : "buc_ees_date_comparison",
+                "file_dates" : [str(d) for d in sorted(file_dates, reverse=True)],
+                "loaded_dates": [str(d) for d in sorted(loaded_dates, reverse=True)]
+            }))
+
+            # Keep only rows whose Trans_date is NOT already in Snowflake
+            dates_to_insert = file_dates - loaded_dates
+
+            if not dates_to_insert:
+                print(json.dumps({"event": "buc_ees_no_new_data", "store": store_name}))
+                return None
+
+            df_extracted = df_extracted[
+                pd.to_datetime(df_extracted['Trans_date']).isin(dates_to_insert)
+            ].copy()
+
+            print(json.dumps({
+                "event"          : "buc_ees_new_dates_to_insert",
+                "dates_to_insert": [str(d) for d in sorted(dates_to_insert, reverse=True)],
+                "rows_kept"      : len(df_extracted)
+            }))
 
         base_name  = file_name.rsplit('.', 1)[0]
         output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
