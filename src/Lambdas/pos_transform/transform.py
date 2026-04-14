@@ -383,7 +383,7 @@ def handle_missing(df,missing):
 
     return df
 
-def normalize_week_ending(df):
+def normalize_week_ending(df, store_name=None):
     def nearest_saturday(date):
         day = date.dayofweek
 
@@ -396,38 +396,42 @@ def normalize_week_ending(df):
         if (date - prev_sat) <= (next_sat - date):
             return prev_sat
         return next_sat
-    
-    def parse_date(val):
-        val         = str(val).strip()
-        if len(val) == 6 and val.isdigit():
-            return pd.to_datetime(val + '1', format='%Y%W%w')
-        return pd.to_datetime(val)
-    
-    is_week_format = df['Trans_date'].astype(str).str.strip().apply(
-    lambda x: len(x) == 6 and x.isdigit()
-    ).any()
 
+    def parse_date(val):
+        val = str(val).strip()
+        if len(val) == 6 and val.isdigit():
+            monday = pd.to_datetime(val + '1', format='%Y%W%w')
+            return monday - pd.Timedelta(days=2)  # Monday → previous Saturday
+        return pd.to_datetime(val)
     if not pd.api.types.is_datetime64_any_dtype(df['Trans_date']):
         try:
             df['Trans_date'] = df['Trans_date'].apply(parse_date)
         except Exception as e:
             print(json.dumps({"event": "date_parse_failed", "error": str(e)}))
-            raise  
+            raise
 
-    if is_week_format:
+    # ── Buc-ees: Week_Ending per Trans_date, keep only max Trans_date ─────────
+    if store_name == "buc-ees":
         df['Week_Ending'] = df['Trans_date'].apply(
             lambda d: nearest_saturday(d).normalize()
         )
+        df = df[df['Trans_date'] == df['Trans_date'].max()].copy()
+        print(json.dumps({
+            "event"       : "week_ending_normalized",
+            "store"       : store_name,
+            "week_ending" : str(df['Week_Ending'].iloc[0]),
+            "trans_date"  : str(df['Trans_date'].iloc[0]),
+            "rows_kept"   : len(df)
+        }))
     else:
         max_date          = df['Trans_date'].max()
         week_ending       = nearest_saturday(max_date).normalize()
         df['Week_Ending'] = week_ending
+        print(json.dumps({
+            "event"      : "week_ending_normalized",
+            "week_ending": str(df['Week_Ending'].iloc[0])
+        }))
 
-    print(json.dumps({
-        "event"        : "week_ending_normalized",
-        "week_ending"  : str(df['Week_Ending'].iloc[0]),
-        "unique_weeks" : df['Week_Ending'].nunique()
-    }))
     return df
 
 def clean_postal_code(df):
@@ -798,7 +802,7 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         print(f"Extracted shape: {df_extracted.shape}")
 
         df_extracted = product_mapping(df_extracted, mapping_bucket)
-        df_extracted = normalize_week_ending(df_extracted)
+        df_extracted = normalize_week_ending(df_extracted, store_name)
 
         missing = vendor_config.get("missing", [])
         if missing:
