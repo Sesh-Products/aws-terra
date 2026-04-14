@@ -3,7 +3,7 @@ INSERT INTO ${database}.${backup_schema}.pos_transactions_backup (
   address, keys_used, product_upc, trans_date, trans_qty, total_sales
 )
 WITH stg_data AS (
-  SELECT * FROM ${database}.${schema}.${stream_name}
+  SELECT *, ROW_NUMBER() OVER (ORDER BY 1) AS _row_id FROM ${database}.${schema}.${stream_name}
   WHERE METADATA$ACTION = 'INSERT'
 ),
 child_ids AS (
@@ -24,7 +24,7 @@ child_ids AS (
     ON  s.COUNTY IS NOT NULL
     AND UPPER(TRIM(s.COUNTY)) = UPPER(TRIM(dco.county_name))
   QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY _row_id
+    PARTITION BY s._row_id
     ORDER BY
       CASE WHEN s.POSTAL_CODE IS NOT NULL
             AND TRIM(POSTAL_CODE) = TRIM(dc.postal_code) THEN 1
