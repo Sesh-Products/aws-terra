@@ -401,8 +401,12 @@ def normalize_week_ending(df):
         val         = str(val).strip()
         if len(val) == 6 and val.isdigit():
             return pd.to_datetime(val + '1', format='%Y%W%w')
-
         return pd.to_datetime(val)
+    
+    is_week_format = df['Trans_date'].astype(str).str.strip().apply(
+    lambda x: len(x) == 6 and x.isdigit()
+    ).any()
+
     if not pd.api.types.is_datetime64_any_dtype(df['Trans_date']):
         try:
             df['Trans_date'] = df['Trans_date'].apply(parse_date)
@@ -410,10 +414,20 @@ def normalize_week_ending(df):
             print(json.dumps({"event": "date_parse_failed", "error": str(e)}))
             raise  
 
-    max_date    = df['Trans_date'].max()
-    week_ending = nearest_saturday(max_date).normalize()
-    df['Week_Ending'] = week_ending
-    print(json.dumps({"event": "week_ending_normalized","week_ending": str(df['Week_Ending'].iloc[0])}))
+    if is_week_format:
+        df['Week_Ending'] = df['Trans_date'].apply(
+            lambda d: nearest_saturday(d).normalize()
+        )
+    else:
+        max_date          = df['Trans_date'].max()
+        week_ending       = nearest_saturday(max_date).normalize()
+        df['Week_Ending'] = week_ending
+
+    print(json.dumps({
+        "event"        : "week_ending_normalized",
+        "week_ending"  : str(df['Week_Ending'].iloc[0]),
+        "unique_weeks" : df['Week_Ending'].nunique()
+    }))
     return df
 
 def clean_postal_code(df):
