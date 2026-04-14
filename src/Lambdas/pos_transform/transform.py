@@ -406,7 +406,6 @@ def normalize_week_ending(df):
     if not pd.api.types.is_datetime64_any_dtype(df['Trans_date']):
         try:
             df['Trans_date'] = df['Trans_date'].apply(parse_date)
-            df = df[df['Trans_date'] == df['Trans_date'].max()]
         except Exception as e:
             print(json.dumps({"event": "date_parse_failed", "error": str(e)}))
             raise  
@@ -775,6 +774,9 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         df_extracted = clean_postal_code(df_extracted)
 
         check_new_stores(df_extracted, store_name, s3_client)
+        if store_name == "buc-ees":
+            df_extracted = df_extracted[df_extracted['Trans_date'] == df_extracted['Trans_date'].max()].copy()
+            print(json.dumps({"event": "buc_ees_latest_week_filter", "rows_kept": len(df_extracted)}))
 
         base_name  = file_name.rsplit('.', 1)[0]
         output_key = f"pos_transformed/{store_name}/{timestamp}/{base_name}.csv"
