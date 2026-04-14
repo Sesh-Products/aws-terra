@@ -1,6 +1,7 @@
 import asyncio
 import os
 import logging
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -38,6 +39,37 @@ def upload_screenshot(local_path: str, s3_key: str):
         log.info(f"Screenshot uploaded to s3://{RAW_BUCKET}/{s3_key}")
     except Exception as e:
         log.warning(f"Failed to upload screenshot {local_path}: {e}")
+
+
+def extract_and_upload_zip(zip_path: Path) -> list[str]:
+    uploaded_keys = []
+    extract_dir   = zip_path.parent / zip_path.stem
+
+    log.info(f"Extracting zip: {zip_path}")
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        zf.extractall(extract_dir)
+        extracted_files = list(extract_dir.rglob('*'))
+        log.info(f"Extracted {len(extracted_files)} file(s): {[f.name for f in extracted_files]}")
+
+    for file_path in extracted_files:
+        if not file_path.is_file():
+            continue
+
+        s3_key = f"{S3_PREFIX}/nielsen/{file_path.name}"
+        with open(file_path, "rb") as f:
+            s3.put_object(Bucket=RAW_BUCKET, Key=s3_key, Body=f.read())
+        log.info(f"Uploaded extracted file to s3://{RAW_BUCKET}/{s3_key}")
+        uploaded_keys.append(s3_key)
+
+    return uploaded_keys
+
+
+def upload_file(file_path: Path) -> str:
+    s3_key = f"{S3_PREFIX}/nielsen/{file_path.name}"
+    with open(file_path, "rb") as f:
+        s3.put_object(Bucket=RAW_BUCKET, Key=s3_key, Body=f.read())
+    log.info(f"Uploaded to s3://{RAW_BUCKET}/{s3_key}")
+    return s3_key
 
 # ── Steps ─────────────────────────────────────────────────────────────────────
 
@@ -129,20 +161,25 @@ async def find_and_download_report(page):
         await download_option.click()
 
     download = await dl_info.value
-    failure = await download.failure()
+    failure  = await download.failure()
     if failure:
         raise RuntimeError(f"Download failed: {failure}")
 
     dest = DOWNLOAD_DIR / download.suggested_filename
     await download.save_as(dest)
+    log.info(f"Downloaded: {dest.name} ({dest.stat().st_size} bytes)")
 
-    # ← Use nielsen as source so pos_transform handles it correctly
-    timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
-    s3_key = f"{S3_PREFIX}/nielsen/{download.suggested_filename}"
-    with open(dest, "rb") as f:
-        s3.put_object(Bucket=RAW_BUCKET, Key=s3_key, Body=f.read())
-    log.info(f"Uploaded to s3://{RAW_BUCKET}/{s3_key}")
-    return s3_key
+    # ── Handle zip vs regular file ────────────────────────────────────────────
+    if dest.suffix.lower() == '.zip':
+        log.info("Downloaded file is a ZIP — extracting...")
+        uploaded_keys = extract_and_upload_zip(dest)
+        if not uploaded_keys:
+            raise RuntimeError("ZIP was empty or contained no uploadable files")
+        log.info(f"Uploaded {len(uploaded_keys)} file(s) from ZIP")
+        return uploaded_keys
+    else:
+        s3_key = upload_file(dest)
+        return [s3_key]
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -167,8 +204,8 @@ async def main():
 
         try:
             await login(page)
-            s3_key = await find_and_download_report(page)
-            log.info(f"Done. Report uploaded to S3: {s3_key}")
+            s3_keys = await find_and_download_report(page)
+            log.info(f"Done. Report(s) uploaded to S3: {s3_keys}")
 
         except Exception as e:
             await page.screenshot(path="/tmp/debug_error.png", full_page=True)
