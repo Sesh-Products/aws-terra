@@ -465,12 +465,12 @@ def get_known_locations():
         cursor.execute("""
             SELECT 
                 dl.loc_id,
-                dl.loc_name,
-                dl.store_code::STRING  as store_code,
-                dl.address,
-                dc.city_name           as city,
-                ds.state_name          as state,
-                dco.county_name        as county,
+                UPPER(dl.loc_name)         as loc_name,
+                dl.store_code::STRING      as store_code,
+                UPPER(dl.address)          as address,
+                UPPER(dc.city_name)        as city,
+                UPPER(ds.state_name)       as state,
+                UPPER(dco.county_name)     as county,
                 dc.postal_code
             FROM SESH_METADATA.PUBLIC.dim_location dl
             LEFT JOIN SESH_METADATA.PUBLIC.dim_city    dc  ON dl.city_id   = dc.city_id
@@ -482,7 +482,7 @@ def get_known_locations():
             columns=[col[0].lower() for col in cursor.description]
         )
         if df.empty:
-            raise ValueError("dim_location returned 0 rows")  # ← STOP
+            raise ValueError("dim_location returned 0 rows")
         print(json.dumps({"event": "known_locations_loaded", "rows": len(df)}))
         return df
     except Exception as e:
@@ -494,8 +494,9 @@ def get_known_locations():
 def _get_or_insert_state(cursor, state_name):
     if not state_name:
         return None
+    state_name = str(state_name).strip().upper()
     cursor.execute(
-        "SELECT State_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(State_name) = UPPER(%s)",
+        "SELECT State_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(State_name) = %s",
         (state_name,)
     )
     row = cursor.fetchone()
@@ -506,7 +507,7 @@ def _get_or_insert_state(cursor, state_name):
         (state_name,)
     )
     cursor.execute(
-        "SELECT State_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(State_name) = UPPER(%s)",
+        "SELECT State_id FROM SESH_METADATA.PUBLIC.dim_state WHERE UPPER(State_name) = %s",
         (state_name,)
     )
     return cursor.fetchone()[0]
@@ -515,8 +516,9 @@ def _get_or_insert_state(cursor, state_name):
 def _get_or_insert_county(cursor, county_name):
     if not county_name:
         return None
+    county_name = str(county_name).strip().upper()
     cursor.execute(
-        "SELECT County_id FROM SESH_METADATA.PUBLIC.dim_county WHERE UPPER(County_name) = UPPER(%s)",
+        "SELECT County_id FROM SESH_METADATA.PUBLIC.dim_county WHERE UPPER(County_name) = %s",
         (county_name,)
     )
     row = cursor.fetchone()
@@ -527,17 +529,17 @@ def _get_or_insert_county(cursor, county_name):
         (county_name,)
     )
     cursor.execute(
-        "SELECT County_id FROM SESH_METADATA.PUBLIC.dim_county WHERE UPPER(County_name) = UPPER(%s)",
+        "SELECT County_id FROM SESH_METADATA.PUBLIC.dim_county WHERE UPPER(County_name) = %s",
         (county_name,)
     )
     return cursor.fetchone()[0]
 
-
 def _get_or_insert_city(cursor, city_name, postal_code):
     if not city_name:
         return None
+    city_name = str(city_name).strip().upper()  # ← uppercase before lookup AND insert
     cursor.execute(
-        "SELECT City_id FROM SESH_METADATA.PUBLIC.dim_city WHERE UPPER(City_name) = UPPER(%s)",
+        "SELECT City_id FROM SESH_METADATA.PUBLIC.dim_city WHERE UPPER(City_name) = %s",
         (city_name,)
     )
     row = cursor.fetchone()
@@ -548,28 +550,28 @@ def _get_or_insert_city(cursor, city_name, postal_code):
         (city_name, postal_code)
     )
     cursor.execute(
-        "SELECT City_id FROM SESH_METADATA.PUBLIC.dim_city WHERE UPPER(City_name) = UPPER(%s)",
+        "SELECT City_id FROM SESH_METADATA.PUBLIC.dim_city WHERE UPPER(City_name) = %s",
         (city_name,)
     )
     return cursor.fetchone()[0]
 
 
+
 def _insert_location(cursor, store_row):
-    state_id  = _get_or_insert_state(cursor, store_row["State"])   if "State"   in store_row else None
-    county_id = _get_or_insert_county(cursor, store_row["County"]) if "County"  in store_row else None
+    state_id  = _get_or_insert_state(cursor, store_row.get("State"))   if "State"   in store_row else None
+    county_id = _get_or_insert_county(cursor, store_row.get("County")) if "County"  in store_row else None
     city_id   = _get_or_insert_city(
-        cursor, store_row["City"], store_row.get("Postal_Code")
+        cursor, store_row.get("City"), store_row.get("Postal_Code")
     ) if "City" in store_row else None
 
-    col_val_pairs = [
-        ("Loc_type", 1),  
-    ]
+    col_val_pairs = [("Loc_type", 1)]
 
     for input_col, sf_col in [("Store", "Loc_name"), ("Store_Code", "Store_code"), ("Address", "Address")]:
         val = store_row.get(input_col)
         if val is not None:
-            if sf_col == "Loc_name":
-                val = str(val).upper()
+            val = str(val).strip()
+            if sf_col in ("Loc_name", "Address"):
+                val = val.upper()
             col_val_pairs.append((sf_col, val))
 
     if state_id  is not None: col_val_pairs.append(("State_id",  state_id))
@@ -586,7 +588,6 @@ def _insert_location(cursor, store_row):
     )
     cursor.execute("SELECT MAX(Loc_id) FROM SESH_METADATA.PUBLIC.dim_location")
     return cursor.fetchone()[0]
-
 
 def _send_email(subject, body):
     NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
