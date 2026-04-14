@@ -49,14 +49,11 @@ loc_matched AS (
   LEFT JOIN ${database}.${dim_schema}.dim_location dl
     ON (
       (
-        dl.store_code::STRING = c.STORE_CODE::STRING
-        AND (c.city_id   IS NULL OR dl.city_id   = c.city_id)
-        AND (c.state_id  IS NULL OR dl.state_id  = c.state_id)
-        AND (c.county_id IS NULL OR dl.county_id = c.county_id)
-        AND (c.ADDRESS   IS NULL OR UPPER(TRIM(dl.address)) = UPPER(TRIM(c.ADDRESS)))
-        AND (UPPER(Trim(c.STORE)) = UPPER(TRIM(dl.LOC_NAME)))
-        AND dl.Loc_type = 1
-      )
+            dl.store_code::STRING    = c.STORE_CODE::STRING
+            AND UPPER(TRIM(dl.loc_name)) = UPPER(TRIM(c.STORE))
+            AND (c.ADDRESS IS NULL OR UPPER(TRIM(dl.address)) = UPPER(TRIM(c.ADDRESS)))
+            AND dl.loc_type              = 1
+        )
       OR
       (
         c.STORE_NAME IS NOT NULL
