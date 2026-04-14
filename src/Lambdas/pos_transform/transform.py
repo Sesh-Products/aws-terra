@@ -802,29 +802,28 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         if store_name == "buc-ees":
             loaded_dates = get_bucees_loaded_dates()
 
-            # Get distinct Trans_dates from current file after week ending calc
-            file_dates = set(pd.to_datetime(df_extracted['Trans_date'].unique()))
+            file_week_endings = set(pd.to_datetime(df_extracted['Week_Ending'].unique()))
 
             print(json.dumps({
-                "event"      : "buc_ees_date_comparison",
-                "file_dates" : [str(d) for d in sorted(file_dates, reverse=True)],
-                "loaded_dates": [str(d) for d in sorted(loaded_dates, reverse=True)]
+                "event"           : "buc_ees_date_comparison",
+                "file_week_endings": [str(d) for d in sorted(file_week_endings, reverse=True)],
+                "loaded_dates"    : [str(d) for d in sorted(loaded_dates, reverse=True)]
             }))
 
-            # Keep only rows whose Trans_date is NOT already in Snowflake
-            dates_to_insert = file_dates - loaded_dates
+            # Keep only rows whose Week_Ending is NOT already in Snowflake
+            weeks_to_insert = file_week_endings - loaded_dates
 
-            if not dates_to_insert:
+            if not weeks_to_insert:
                 print(json.dumps({"event": "buc_ees_no_new_data", "store": store_name}))
                 return None
 
             df_extracted = df_extracted[
-                pd.to_datetime(df_extracted['Trans_date']).isin(dates_to_insert)
+                pd.to_datetime(df_extracted['Week_Ending']).isin(weeks_to_insert)
             ].copy()
 
             print(json.dumps({
-                "event"          : "buc_ees_new_dates_to_insert",
-                "dates_to_insert": [str(d) for d in sorted(dates_to_insert, reverse=True)],
+                "event"          : "buc_ees_new_weeks_to_insert",
+                "weeks_to_insert": [str(d) for d in sorted(weeks_to_insert, reverse=True)],
                 "rows_kept"      : len(df_extracted)
             }))
 
