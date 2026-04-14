@@ -24,10 +24,10 @@ child_ids AS (
     ON  s.COUNTY IS NOT NULL
     AND UPPER(TRIM(s.COUNTY)) = UPPER(TRIM(dco.county_name))
   QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY s._row_id
+    PARTITION BY _row_id
     ORDER BY
       CASE WHEN s.POSTAL_CODE IS NOT NULL
-            AND TRIM(s.POSTAL_CODE) = TRIM(dc.postal_code) THEN 1
+            AND TRIM(POSTAL_CODE) = TRIM(dc.postal_code) THEN 1
            ELSE 2
       END
   ) = 1
