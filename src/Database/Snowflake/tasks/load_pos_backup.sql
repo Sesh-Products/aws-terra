@@ -27,7 +27,7 @@ child_ids AS (
     PARTITION BY s._row_id
     ORDER BY
       CASE WHEN s.POSTAL_CODE IS NOT NULL
-            AND TRIM(POSTAL_CODE) = TRIM(dc.postal_code) THEN 1
+            AND TRIM(s.POSTAL_CODE) = TRIM(dc.postal_code) THEN 1
            ELSE 2
       END
   ) = 1
