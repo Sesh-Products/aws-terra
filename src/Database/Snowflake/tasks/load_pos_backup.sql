@@ -15,14 +15,22 @@ child_ids AS (
   FROM stg_data s
   LEFT JOIN ${database}.${dim_schema}.dim_city dc
     ON  s.CITY IS NOT NULL
-    AND UPPER(TRIM(s.CITY))     = UPPER(TRIM(dc.city_name))
+    AND UPPER(TRIM(s.CITY))   = UPPER(TRIM(dc.city_name))
     AND (s.POSTAL_CODE IS NULL OR TRIM(s.POSTAL_CODE) = TRIM(dc.postal_code))
   LEFT JOIN ${database}.${dim_schema}.dim_state dst
     ON  s.STATE IS NOT NULL
-    AND UPPER(TRIM(s.STATE))    = UPPER(TRIM(dst.state_name))
+    AND UPPER(TRIM(s.STATE))  = UPPER(TRIM(dst.state_name))
   LEFT JOIN ${database}.${dim_schema}.dim_county dco
     ON  s.COUNTY IS NOT NULL
-    AND UPPER(TRIM(s.COUNTY))   = UPPER(TRIM(dco.county_name))
+    AND UPPER(TRIM(s.COUNTY)) = UPPER(TRIM(dco.county_name))
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY s._row_id
+    ORDER BY
+      CASE WHEN s.POSTAL_CODE IS NOT NULL
+            AND TRIM(s.POSTAL_CODE) = TRIM(dc.postal_code) THEN 1
+           ELSE 2
+      END
+  ) = 1
 ),
 loc_matched AS (
   SELECT
@@ -46,7 +54,7 @@ loc_matched AS (
         AND (c.state_id  IS NULL OR dl.state_id  = c.state_id)
         AND (c.county_id IS NULL OR dl.county_id = c.county_id)
         AND (c.ADDRESS   IS NULL OR UPPER(TRIM(dl.address)) = UPPER(TRIM(c.ADDRESS)))
-        AND (c.STORE_NAME = dl.STORE_NAME)
+        AND (c.Store = dl.loc_name)
         AND dl.Loc_type = 1
       )
       OR
