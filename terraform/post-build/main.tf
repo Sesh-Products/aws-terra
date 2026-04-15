@@ -161,3 +161,24 @@ module "ec2" {
     Project     = var.project
   }
 }
+
+# =============================================================================
+# Network - SES
+# =============================================================================
+
+
+module "network" {
+  source = "./modules/network"
+
+  environment = var.environment
+  project     = var.project
+
+  ses_domain           = var.ses_domain
+  ses_email_identities = var.ses_email_identities
+  ses_rule_set_name    = var.ses_rule_set_name
+  ses_rule_name        = var.ses_rule_name
+  ses_rule_recipients  = var.ses_rule_recipients
+  ses_s3_bucket_name   = var.ses_s3_bucket_name
+  ses_s3_key_prefix    = var.ses_s3_key_prefix
+  ses_lambda_function_arn = var.ses_lambda_function_arn
+}

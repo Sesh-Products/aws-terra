@@ -191,3 +191,56 @@ variable "raw_bucket_email" {
   type        = string
   default     = null
 }
+
+
+# =============================================================================
+# SES
+# =============================================================================
+
+variable "ses_domain" {
+  description = "Domain to verify in SES"
+  type        = string
+  default     = null
+}
+
+variable "ses_email_identities" {
+  description = "List of email addresses to verify in SES"
+  type        = list(string)
+  default     = []
+}
+
+variable "ses_rule_set_name" {
+  description = "Name of the SES receipt rule set"
+  type        = string
+  default     = null
+}
+
+variable "ses_rule_name" {
+  description = "Name of the SES receipt rule"
+  type        = string
+  default     = null
+}
+
+variable "ses_rule_recipients" {
+  description = "Recipient domains or emails for the SES receipt rule"
+  type        = list(string)
+  default     = []
+}
+
+variable "ses_s3_bucket_name" {
+  description = "S3 bucket for raw SES emails"
+  type        = string
+  default     = null
+}
+
+variable "ses_s3_key_prefix" {
+  description = "S3 key prefix for SES emails"
+  type        = string
+  default     = "ses-emails/"
+}
+
+variable "ses_lambda_function_arn" {
+  description = "ARN of Lambda triggered by SES receipt rule"
+  type        = string
+  default     = null
+}

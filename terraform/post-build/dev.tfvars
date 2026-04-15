@@ -285,3 +285,17 @@ ec2_instances = {
     ]
   }
 }
+
+
+# =============================================================================
+# SES
+# =============================================================================
+
+ses_domain              = "data.seshproducts.com"
+ses_email_identities    = ["naimish@seshproducts.com", "data-ingest@seshproducts.com"]
+ses_rule_set_name       = "pos_extract_trigger_dev"
+#es_rule_name           = "pos_extract_trigger_dev"
+ses_rule_recipients     = ["data.seshproducts.com"]
+ses_s3_bucket_name      = "pos-raw-email-bucket"
+ses_s3_key_prefix       = "ses-emails/"
+ses_lambda_function_arn = "arn:aws:lambda:us-east-1:000605313601:function:pos_extract-dev"

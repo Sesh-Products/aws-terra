@@ -53,3 +53,19 @@ output "ec2_instance_ids" {
   description = "EC2 instance IDs"
   value       = { for k, v in module.ec2 : k => v.instance_id }
 }
+
+
+output "ses_domain_identity_arn" {
+  description = "ARN of the SES domain identity"
+  value       = module.network.ses_domain_identity_arn
+}
+
+output "ses_dkim_tokens" {
+  description = "DKIM tokens to add to DNS"
+  value       = module.network.ses_dkim_tokens
+}
+
+output "ses_rule_set_name" {
+  description = "Active SES receipt rule set name"
+  value       = module.network.ses_rule_set_name
+}
