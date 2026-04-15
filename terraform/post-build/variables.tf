@@ -192,7 +192,6 @@ variable "raw_bucket_email" {
   default     = null
 }
 
-
 # =============================================================================
 # SES
 # =============================================================================
@@ -243,4 +242,14 @@ variable "ses_lambda_function_arn" {
   description = "ARN of Lambda triggered by SES receipt rule"
   type        = string
   default     = null
+}
+
+# =============================================================================
+# DKIM Output
+# =============================================================================
+
+variable "dkim_output_dir" {
+  description = "Local directory path where dkim_records.txt will be saved"
+  type        = string
+  default     = "./dkim-records"
 }
