@@ -5,7 +5,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from io import StringIO, BytesIO
 import boto3
-import openpyxl
+import re
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.backends import default_backend
 import snowflake.connector
@@ -781,10 +781,164 @@ def get_bucees_loaded_dates():
     finally:
         conn.close()
 
+def extract_new_nielsen_products(df, store_name):
+    if store_name != "nielsen":
+        return
+
+    print(json.dumps({"event": "nielsen_product_check_started"}))
+
+    conn = get_snowflake_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT UPC FROM SESH_METADATA.PUBLIC.DIM_PRODUCT")
+        existing_upcs = {str(row[0]).strip() for row in cursor.fetchall()}
+
+        cursor.execute("SELECT BRAND_ID, BRAND_NAME FROM SESH_METADATA.PUBLIC.DIM_BRAND")
+        brand_map = {row[1].strip().upper(): row[0] for row in cursor.fetchall()}
+
+    except Exception as e:
+        print(json.dumps({"event": "nielsen_product_check_failed", "error": str(e)}))
+        conn.close()
+        return
+
+    df['UPC'] = df['UPC'].astype(str).str.strip()
+    new_rows = df[~df['UPC'].isin(existing_upcs)].copy()
+    new_rows = new_rows.drop_duplicates(subset=['UPC'])
+
+    if new_rows.empty:
+        print(json.dumps({"event": "nielsen_no_new_products"}))
+        conn.close()
+        return
+
+    print(json.dumps({"event": "nielsen_new_products_found", "count": len(new_rows)}))
+
+    def resolve_brand_id(brand_name):
+        if pd.isna(brand_name):
+            return None
+        name = str(brand_name).strip().upper()
+        if name in brand_map:
+            return brand_map[name]
+        return None
+
+    sesh_brand_id = brand_map.get('SESH (SESH PRODUCTS US)')
+    if sesh_brand_id:
+        non_sesh_rows    = []
+        for _, row in new_rows.iterrows():
+            brand_id = resolve_brand_id(str(row.get('Brand', '')).strip())
+            if brand_id != sesh_brand_id:
+                non_sesh_rows.append(row)
+        new_rows = pd.DataFrame(non_sesh_rows) if non_sesh_rows else pd.DataFrame()
+
+    if new_rows.empty:
+        print(json.dumps({"event": "nielsen_no_new_non_sesh_products"}))
+        conn.close()
+        return
+
+    inserted = []
+    failed   = []
+
+    for _, row in new_rows.iterrows():
+        upc        = str(row['UPC']).strip()
+        prod_name  = str(row.get('Product Description', '')).strip()
+        brand_name = str(row.get('Brand', '')).strip()
+        brand_id   = resolve_brand_id(brand_name)
+
+        flavour  = str(row['Flavor']).strip()   if 'Flavor'   in row and pd.notna(row['Flavor'])   else None
+        strength = str(row['Strength']).strip() if 'Strength' in row and pd.notna(row['Strength']) else None
+
+        if strength:
+            mg_match = re.match(r'^(\d+)\s*MG$', strength.strip().upper())
+            if mg_match:
+                strength = f"{mg_match.group(1)} MILLIGRAM"
+
+        if flavour:
+            flavour = flavour.capitalize()
+
+        desc = str(row.get('Product Description', '')).strip().upper()
+
+        pouch_cnt = None
+        pouch_match = re.search(r'(\d+)\s*(?:CT|COUNT)\b', desc)
+        if pouch_match:
+            pouch_cnt = f"{pouch_match.group(1)} COUNT"
+
+        pack_cnt = None
+        pack_match = re.search(r'(\d+)\s*(?:PK|PCK|PACK)\b', desc)
+        if pack_match:
+            pack_cnt = f"{pack_match.group(1)} Pack"
+        else:
+            pack_cnt = "1 Pack"
+
+        try:
+            cursor.execute("""
+                INSERT INTO SESH_METADATA.PUBLIC.DIM_PRODUCT
+                (UPC, PROD_NAME, BRAND_ID, FLAVOUR, STRENGTH, PACK_CNT, POUCH_CNT)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (upc, prod_name, brand_id, flavour, strength, pack_cnt, pouch_cnt))
+            conn.commit()
+            inserted.append({
+                "upc"      : upc,
+                "prod_name": prod_name,
+                "brand"    : brand_name,
+                "brand_id" : brand_id,
+                "flavour"  : flavour,
+                "strength" : strength,
+                "pack_cnt" : pack_cnt,
+                "pouch_cnt": pouch_cnt
+            })
+            print(json.dumps({
+                "event"    : "nielsen_product_inserted",
+                "upc"      : upc,
+                "prod_name": prod_name,
+                "flavour"  : flavour,
+                "strength" : strength
+            }))
+        except Exception as e:
+            conn.rollback()
+            failed.append({"upc": upc, "prod_name": prod_name, "error": str(e)})
+            print(json.dumps({
+                "event": "nielsen_product_insert_failed",
+                "upc"  : upc,
+                "error": str(e)
+            }))
+
+    conn.close()
+
+    print(json.dumps({
+        "event"   : "nielsen_product_check_complete",
+        "inserted": len(inserted),
+        "failed"  : len(failed)
+    }))
+
+    if inserted:
+        body = f"{len(inserted)} new product(s) detected from Nielsen and added to DIM_PRODUCT:\n\n"
+        for p in inserted:
+            body += (
+                f"  UPC      : {p['upc']}\n"
+                f"  Name     : {p['prod_name']}\n"
+                f"  Brand    : {p['brand']} (ID: {p['brand_id']})\n"
+                f"  Flavour  : {p['flavour']}\n"
+                f"  Strength : {p['strength']}\n\n"
+            )
+        _send_email("New Nielsen Products Added to DIM_PRODUCT", body)
+
+    if failed:
+        body = f"{len(failed)} product(s) could NOT be inserted:\n\n"
+        for p in failed:
+            body += (
+                f"  UPC  : {p['upc']}\n"
+                f"  Name : {p['prod_name']}\n"
+                f"  Error: {p['error']}\n\n"
+            )
+        _send_email("Nielsen Product Insert Failed", body)
+
+
 def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, output_bucket):
     try:
         vendor_config = VENDOR_CONFIG.get(store_name, {})
         mapping_bucket = get_mapping_table()
+
+        extract_new_nielsen_products(df_raw, store_name)
 
         if not COLUMN_CONFIG or store_name not in COLUMN_CONFIG:
             print(f"No COLUMN_CONFIG entry for store '{store_name}' — skipping transform.")
