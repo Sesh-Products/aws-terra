@@ -938,7 +938,7 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         vendor_config = VENDOR_CONFIG.get(store_name, {})
         mapping_bucket = get_mapping_table()
 
-        extract_new_nielsen_products(df_raw, store_name)
+
 
         if not COLUMN_CONFIG or store_name not in COLUMN_CONFIG:
             print(f"No COLUMN_CONFIG entry for store '{store_name}' — skipping transform.")
@@ -946,6 +946,8 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
 
         df_raw = read_file(body_bytes, file_name)
         print(f"Raw DataFrame shape: {df_raw.shape}")
+        
+        extract_new_nielsen_products(df_raw, store_name)
 
         df = clean_dataframe(df_raw, store_name)
         print(f"Cleaned DataFrame shape: {df.shape}, columns: {list(df.columns)}")
