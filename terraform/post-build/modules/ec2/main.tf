@@ -53,13 +53,11 @@ resource "aws_iam_role" "ec2" {
   tags = var.tags
 }
 
-# SSM — allows remote triggering without SSH
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.ec2.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# S3 — to download scripts and upload reports
 resource "aws_iam_role_policy" "s3" {
   name = "${var.instance_name}-s3-policy"
   role = aws_iam_role.ec2.name
@@ -77,7 +75,6 @@ resource "aws_iam_role_policy" "s3" {
   })
 }
 
-# Additional custom policy statements
 resource "aws_iam_role_policy" "additional" {
   count = length(var.additional_policy_statements) > 0 ? 1 : 0
   name  = "${var.instance_name}-additional-policy"
@@ -101,6 +98,36 @@ resource "aws_iam_instance_profile" "ec2" {
 }
 
 # =============================================================================
+# Security Group (optional — only created when vpc_id is provided)
+# =============================================================================
+
+resource "aws_security_group" "this" {
+  count       = var.vpc_id != null ? 1 : 0
+  name        = "${var.instance_name}-sg"
+  description = "Security group for ${var.instance_name}"
+  vpc_id      = var.vpc_id
+
+  dynamic "ingress" {
+    for_each = var.ingress_rules
+    content {
+      from_port   = ingress.value.from_port
+      to_port     = ingress.value.to_port
+      protocol    = ingress.value.protocol
+      cidr_blocks = ingress.value.cidr_blocks
+    }
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = var.tags
+}
+
+# =============================================================================
 # EC2 Instance
 # =============================================================================
 
@@ -109,51 +136,73 @@ resource "aws_instance" "this" {
   instance_type               = var.instance_type
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
   associate_public_ip_address = var.associate_public_ip
-  
+  subnet_id                   = var.subnet_id
+  vpc_security_group_ids      = var.vpc_id != null ? [aws_security_group.this[0].id] : []
+
   root_block_device {
     volume_size = 30
     volume_type = "gp3"
   }
 
-  user_data = <<-EOF
+  # S3-based user data — used when s3_user_data_script is set
+  # Falls back to inline user data for standard EC2 instances
+  user_data = var.s3_user_data_script != null ? base64encode(join("\n", [
+    "#!/bin/bash",
+    "export DOMAIN='${var.domain}'",
+    "export APP_PORT='${var.app_port}'",
+    "export APP_NAME='${var.instance_name}'",
+    "export ENVIRONMENT='${var.environment}'",
+    "export AWS_REGION='${var.aws_region}'",
+    "aws s3 cp s3://${var.s3_script_bucket}/${var.s3_user_data_script} /tmp/setup.sh",
+    "chmod +x /tmp/setup.sh",
+    "bash /tmp/setup.sh"
+  ])) : <<-EOF
   #!/bin/bash
   set -e
 
-  # Install system packages
   dnf install -y python3.12 python3.12-pip amazon-ssm-agent ${local.dnf_packages} ${local.playwright_deps}
 
-  # Start and enable SSM agent
   systemctl enable amazon-ssm-agent
   systemctl start amazon-ssm-agent
 
-  # Set environment variables
   ${local.env_exports}
   set -a
   source /etc/environment
   set +a
 
-  # Install boto3 and pip packages
   python3.12 -m pip install boto3 ${join(" ", var.pip_packages)}
 
-  # Playwright setup
   ${local.playwright_install}
 
-  # Download scripts from S3
   mkdir -p /home/ec2-user/scripts
   aws s3 sync s3://${var.s3_script_bucket}/${var.s3_script_prefix}/ /home/ec2-user/scripts/
   chown -R ec2-user:ec2-user /home/ec2-user/scripts
 
-  # Additional startup commands
   ${var.startup_script}
-  
-EOF
+  EOF
+
   user_data_replace_on_change = true
 
   lifecycle {
-    ignore_changes        = [ami]       
-    create_before_destroy = true        
+    ignore_changes        = [ami]
+    create_before_destroy = true
   }
+
   tags = merge(var.tags, {
     Name = var.instance_name
+  })
+}
+
+# =============================================================================
+# Elastic IP (optional — only created when create_eip is true)
+# =============================================================================
+
+resource "aws_eip" "this" {
+  count    = var.create_eip ? 1 : 0
+  instance = aws_instance.this.id
+  domain   = "vpc"
+
+  tags = merge(var.tags, {
+    Name = "${var.instance_name}-eip"
   })
 }

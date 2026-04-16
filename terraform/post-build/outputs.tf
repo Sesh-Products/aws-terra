@@ -54,3 +54,12 @@ output "ec2_instance_ids" {
   value       = { for k, v in module.ec2 : k => v.instance_id }
 }
 
+output "elastic_ip" {
+  description = "Elastic IP for products.seshproducts.com"
+  value       = module.react_app.elastic_ip
+}
+
+output "instance_id" {
+  description = "React app EC2 instance ID"
+  value       = module.react_app.instance_id
+}

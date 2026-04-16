@@ -192,6 +192,40 @@ variable "raw_bucket_email" {
   default     = null
 }
 
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "vpc_id" {
+  description = "VPC ID to launch the instance in"
+  type        = string
+}
+
+variable "subnet_id" {
+  description = "Subnet ID to launch the instance in"
+  type        = string
+}
+
+variable "domain" {
+  description = "Domain name for the React app"
+  type        = string
+  default     = "products.seshproducts.com"
+}
+
+variable "app_port" {
+  description = "Port the Node.js API runs on"
+  type        = number
+  default     = 3001
+}
+
+variable "tags" {
+  description = "Tags to apply to all resources"
+  type        = map(string)
+  default     = {}
+}
+
 # =============================================================================
 # SES
 # =============================================================================

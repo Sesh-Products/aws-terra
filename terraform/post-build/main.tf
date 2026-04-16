@@ -161,3 +161,49 @@ module "ec2" {
     Project     = var.project
   }
 }
+
+# =============================================================================
+# EC2 — Products React App
+# =============================================================================
+
+resource "aws_s3_object" "react_setup_script" {
+  bucket = "pos-raw-email-bucket"
+  key    = "ec2-scripts/react/user_data_react_app.sh"
+  source = "../../src/Ec2/React/user_data_react_app.sh"
+  etag   = filemd5("../../src/Ec2/React/user_data_react_app.sh")
+}
+
+module "react_app" {
+  source = "./modules/ec2"
+
+  instance_name = "products-app-${var.environment}"
+  environment   = var.environment
+  aws_region    = var.aws_region
+  instance_type = var.instance_type
+  vpc_id        = var.vpc_id
+  subnet_id     = var.subnet_id
+  create_eip    = true
+
+  ingress_rules = [
+    { from_port = 443, to_port = 443, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"] },
+    { from_port = 80,  to_port = 80,  protocol = "tcp", cidr_blocks = ["0.0.0.0/0"] }
+  ]
+
+  s3_script_bucket    = "pos-raw-email-bucket"
+  s3_user_data_script = "ec2-scripts/react/user_data_react_app.sh"
+  domain              = var.domain
+  app_port            = var.app_port
+
+  additional_policy_statements = [{
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["arn:aws:secretsmanager:${var.aws_region}:*:secret:snowflake/pos-pipeline/${var.environment}/*"]
+  }]
+
+  tags = {
+    Environment = var.environment
+    Project     = var.project
+  }
+
+  depends_on = [aws_s3_object.react_setup_script]
+}

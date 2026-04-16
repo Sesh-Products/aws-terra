@@ -299,3 +299,20 @@ ses_s3_bucket_name      = "pos-raw-email-bucket"
 ses_s3_key_prefix       = "ses-emails/"
 ses_lambda_function_arn = "arn:aws:lambda:us-east-1:000605313601:function:pos_extract-dev"
 
+
+# =============================================================================
+# EC2 - React
+# =============================================================================
+
+
+app_name      = "products-app"
+instance_type = "t4g.small"
+vpc_id        = "vpc-04087bb6c7a0fe094"
+subnet_id     = "subnet-01f4ad21f655f2226"
+domain        = "products.seshproducts.com"
+app_port      = 3001
+
+tags = {
+  Environment = "dev"
+  Project     = "pos-pipeline"
+}
