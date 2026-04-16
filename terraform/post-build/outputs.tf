@@ -53,3 +53,4 @@ output "ec2_instance_ids" {
   description = "EC2 instance IDs"
   value       = { for k, v in module.ec2 : k => v.instance_id }
 }
+
