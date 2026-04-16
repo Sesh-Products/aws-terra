@@ -947,10 +947,10 @@ def process_attachment(s3_client, body_bytes, store_name, file_name, timestamp, 
         df_raw = read_file(body_bytes, file_name)
         print(f"Raw DataFrame shape: {df_raw.shape}")
         
-        extract_new_nielsen_products(df_raw, store_name)
-
         df = clean_dataframe(df_raw, store_name)
         print(f"Cleaned DataFrame shape: {df.shape}, columns: {list(df.columns)}")
+
+        extract_new_nielsen_products(df, store_name)
 
         df_extracted = extract_columns(df, store_name)
         if df_extracted is None:
