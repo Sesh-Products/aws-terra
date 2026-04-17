@@ -563,14 +563,22 @@ def _insert_location(cursor, store_row):
     city_id   = _get_or_insert_city(
         cursor, store_row.get("City"), store_row.get("Postal_Code")
     ) if "City" in store_row else None
-
+    print(json.dumps({
+    "event"    : "insert_location_debug",
+    "store_row": store_row,
+    "loc_name" : store_row.get('Store') or store_row.get('Store_Name')
+    }))
     col_val_pairs = [("Loc_type", 1)]
 
-    for input_col, sf_col in [("Store", "Loc_name"), ("Store_Code", "Store_code"), ("Address", "Address")]:
+    loc_name_val = store_row.get('Store') or store_row.get('Store_Name')
+    if loc_name_val:
+        col_val_pairs.append(('LOC_NAME', str(loc_name_val).strip().upper()))
+
+    for input_col, sf_col in [('Store_Code', 'Store_code'),('Address',    'Address')]:
         val = store_row.get(input_col)
         if val is not None:
             val = str(val).strip()
-            if sf_col in ("Loc_name", "Address"):
+            if sf_col == 'Address':
                 val = val.upper()
             col_val_pairs.append((sf_col, val))
 
@@ -619,14 +627,19 @@ def check_new_stores(df, store_name, s3_client):
         return set()
 
     col_mapping = {
-        'Store_Code' : 'store_code',
-        'Store'      : 'loc_name',
-        'Address'    : 'address',
-        'City'       : 'city',
-        'State'      : 'state',
-        'County'     : 'county',
-        'Postal_Code': 'postal_code',
+    'Store_Code' : 'store_code',
+    'Store'      : 'loc_name',
+    'Address'    : 'address',
+    'City'       : 'city',
+    'State'      : 'state',
+    'County'     : 'county',
+    'Postal_Code': 'postal_code',
     }
+
+    if 'Store' in df.columns:
+        col_mapping['Store'] = 'loc_name'
+    elif 'Store_Name' in df.columns:
+        col_mapping['Store_Name'] = 'loc_name'
 
     print(json.dumps({
         "event"      : "check_new_stores_columns",
@@ -695,7 +708,7 @@ def check_new_stores(df, store_name, s3_client):
                 loc_id = _insert_location(cursor, store_row)
                 conn.commit()
                 summary = (
-                    f"  Store     : {store_row.get('Store') or store_row.get('Store_Code')}\n"
+                    f"  Store     : {store_row.get('Store') or store_row.get('Store_Name')}\n"
                     f"  Store Code: {store_row.get('Store_Code')}\n"
                     f"  Address   : {store_row.get('Address')}\n"
                     f"  City      : {store_row.get('City')}\n"
