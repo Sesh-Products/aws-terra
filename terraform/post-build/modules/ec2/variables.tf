@@ -12,6 +12,12 @@ variable "environment" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "tags" {
   description = "Map of tags to apply to all resources"
   type        = map(string)
@@ -41,6 +47,39 @@ variable "associate_public_ip" {
 }
 
 # =============================================================================
+# Networking (optional — for React app style deployments)
+# =============================================================================
+
+variable "vpc_id" {
+  description = "VPC ID. If set, a security group will be created"
+  type        = string
+  default     = null
+}
+
+variable "subnet_id" {
+  description = "Subnet ID to launch the instance in"
+  type        = string
+  default     = null
+}
+
+variable "ingress_rules" {
+  description = "List of ingress rules for the security group"
+  type = list(object({
+    from_port   = number
+    to_port     = number
+    protocol    = string
+    cidr_blocks = list(string)
+  }))
+  default = []
+}
+
+variable "create_eip" {
+  description = "Create and attach an Elastic IP to the instance"
+  type        = bool
+  default     = false
+}
+
+# =============================================================================
 # Script & Environment
 # =============================================================================
 
@@ -59,6 +98,24 @@ variable "s3_script_prefix" {
   description = "S3 key prefix for staged scripts"
   type        = string
   default     = "ec2-scripts"
+}
+
+variable "s3_user_data_script" {
+  description = "S3 key of a script to download and run as user data. If set overrides inline user data."
+  type        = string
+  default     = null
+}
+
+variable "domain" {
+  description = "Domain for the app — injected as env var when s3_user_data_script is set"
+  type        = string
+  default     = ""
+}
+
+variable "app_port" {
+  description = "App port — injected as env var when s3_user_data_script is set"
+  type        = number
+  default     = 3001
 }
 
 variable "environment_variables" {
@@ -82,7 +139,7 @@ variable "additional_policy_statements" {
 }
 
 # =============================================================================
-# packages
+# Packages
 # =============================================================================
 
 variable "packages" {
