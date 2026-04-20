@@ -150,12 +150,13 @@ jobs:
         run: terraform apply -auto-approve -input=false pre-build.tfplan
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # STEP 2A — Post-Build Plan
+  # STEP 2 — Post-Build Plan + Apply
   # ─────────────────────────────────────────────────────────────────────────────
-  post-build-plan:
-    name: "Step 2A · Post-Build Plan (${{ github.event.inputs.environment || 'dev' }})"
+  post-build:
+    name: "Step 2 · Post-Build (${{ github.event.inputs.environment || 'dev' }})"
     runs-on: ubuntu-latest
-    needs: pre-build-plan
+    needs: pre-build-apply
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     environment: ${{ github.event.inputs.environment || 'dev' }}
 
     defaults:
@@ -219,86 +220,6 @@ jobs:
 
       - name: Show Plan Summary
         run: terraform show -no-color post-build.tfplan >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload Plan Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: post-build-plan-${{ env.ENVIRONMENT }}-${{ github.run_id }}
-          path: terraform/post-build/post-build.tfplan
-          retention-days: 1
-
-      - name: Upload Layer Zips
-        uses: actions/upload-artifact@v4
-        with:
-          name: post-build-layer-zips-${{ env.ENVIRONMENT }}-${{ github.run_id }}
-          path: terraform/post-build/.builds/
-          retention-days: 1
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # STEP 2B — Post-Build Apply (requires approval via GitHub Environment)
-  # ─────────────────────────────────────────────────────────────────────────────
-  post-build-apply:
-    name: "Step 2B · Post-Build Apply (${{ github.event.inputs.environment || 'dev' }})"
-    runs-on: ubuntu-latest
-    needs: [pre-build-apply, post-build-plan]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-
-    defaults:
-      run:
-        shell: bash
-        working-directory: terraform/post-build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Lambda layer dependencies
-        run: |
-          LAYER_DIR="../../src/Layers/snowflake"
-          if [ -f "$LAYER_DIR/requirements.txt" ]; then
-            pip install \
-              -r "$LAYER_DIR/requirements.txt" \
-              -t "$LAYER_DIR/python" \
-              --platform manylinux_2_17_aarch64 \
-              --only-binary=:all: \
-              --python-version 3.12
-          fi
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform Init
-        run: |
-          mkdir -p .builds
-          terraform init \
-            -backend-config="key=post-build/${{ env.ENVIRONMENT }}/terraform.tfstate"
-
-      - name: Download Plan Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: post-build-plan-${{ env.ENVIRONMENT }}-${{ github.run_id }}
-          path: terraform/post-build
-
-      - name: Download Layer Zips
-        uses: actions/download-artifact@v4
-        with:
-          name: post-build-layer-zips-${{ env.ENVIRONMENT }}-${{ github.run_id }}
-          path: terraform/post-build/.builds
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false post-build.tfplan
