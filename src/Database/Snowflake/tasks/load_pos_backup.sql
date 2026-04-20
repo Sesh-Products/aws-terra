@@ -3,7 +3,7 @@ INSERT INTO ${database}.${backup_schema}.pos_transactions_backup (
   address, keys_used, product_upc, trans_date, trans_qty, total_sales
 )
 WITH stg_data AS (
-  SELECT *, ROW_NUMBER() OVER (ORDER BY 1) AS _row_id FROM ${database}.${schema}.${stream_name}
+  SELECT *, ROW_NUMBER() OVER (ORDER BY 1) AS _row_id FROM ${database}.${schema}."${stream_name}"
   WHERE METADATA$ACTION = 'INSERT'
 ),
 child_ids AS (
