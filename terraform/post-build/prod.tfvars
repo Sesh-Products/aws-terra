@@ -62,6 +62,10 @@ lambda_functions = {
       S3RawBucket = {
         principal  = "s3.amazonaws.com"
         source_arn = "arn:aws:s3:::pos-raw-email-bucket-prod"
+      },
+      SES = {
+        principal  = "ses.amazonaws.com"
+        source_account = "000605313601"
       }
     }
   },
@@ -307,6 +311,6 @@ ses_email_identities    = {
 ses_rule_set_name       = "pos_extract_trigger_dev"
 ses_rule_name           = "pos_extract_trigger_dev"
 ses_rule_recipients     = ["data.seshproducts.com"]
-ses_s3_bucket_name      = "pos-raw-email-bucket"
+ses_s3_bucket_name      = "pos-raw-email-bucket-prod"
 ses_s3_key_prefix       = "ses-emails/"
 ses_lambda_function_arn = "arn:aws:lambda:us-east-1:000605313601:function:pos_extract-prod"
