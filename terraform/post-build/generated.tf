@@ -1,56 +1,52 @@
 # __generated__ by Terraform
-# Please review these resources and move them into your main configuration files.
+# SES resources are only managed when manage_ses = true (dev environment).
+# Prod reuses the same SES setup without owning these resources in its state.
 
-# __generated__ by Terraform from "data-ingest@seshproducts.com"
-resource "aws_ses_email_identity" "data_ingest" {
-  email = "data-ingest@seshproducts.com"
-}
-
-# __generated__ by Terraform from "data.seshproducts.com"
-resource "aws_ses_domain_dkim" "this" {
-  domain = "data.seshproducts.com"
-}
-
-# __generated__ by Terraform from "data.seshproducts.com"
 resource "aws_ses_domain_identity" "this" {
-  domain = "data.seshproducts.com"
+  for_each = var.manage_ses ? { this = var.ses_domain } : {}
+  domain   = each.value
 }
 
-# __generated__ by Terraform from "pos_extract_trigger_dev"
+resource "aws_ses_domain_dkim" "this" {
+  for_each = var.manage_ses ? { this = var.ses_domain } : {}
+  domain   = each.value
+}
+
+resource "aws_ses_email_identity" "this" {
+  for_each = var.manage_ses ? var.ses_email_identities : {}
+  email    = each.value
+}
+
 resource "aws_ses_receipt_rule_set" "this" {
-  rule_set_name = "pos_extract_trigger_dev"
+  for_each      = var.manage_ses ? { this = var.ses_rule_set_name } : {}
+  rule_set_name = each.value
 }
 
-# __generated__ by Terraform from "pos_extract_trigger_dev"
 resource "aws_ses_active_receipt_rule_set" "this" {
-  rule_set_name = "pos_extract_trigger_dev"
+  for_each      = var.manage_ses ? { this = var.ses_rule_set_name } : {}
+  rule_set_name = each.value
 }
 
-# __generated__ by Terraform from "naimish@seshproducts.com"
-resource "aws_ses_email_identity" "naimish" {
-  email = "naimish@seshproducts.com"
-}
-
-# __generated__ by Terraform from "pos_extract_trigger_dev:pos_extract_trigger_dev"
 resource "aws_ses_receipt_rule" "this" {
+  for_each      = var.manage_ses ? { this = var.ses_rule_set_name } : {}
   after         = null
   enabled       = true
-  name          = "pos_extract_trigger_dev"
-  recipients    = ["data.seshproducts.com"]
-  rule_set_name = "pos_extract_trigger_dev"
+  name          = var.ses_rule_name
+  recipients    = var.ses_rule_recipients
+  rule_set_name = var.ses_rule_set_name
   scan_enabled  = true
   tls_policy    = "Optional"
   lambda_action {
-    function_arn    = "arn:aws:lambda:us-east-1:000605313601:function:pos_extract-dev"
+    function_arn    = var.ses_lambda_function_arn
     invocation_type = "Event"
     position        = 2
     topic_arn       = null
   }
   s3_action {
-    bucket_name       = "pos-raw-email-bucket"
+    bucket_name       = var.ses_s3_bucket_name
     iam_role_arn      = null
     kms_key_arn       = null
-    object_key_prefix = "ses-emails/"
+    object_key_prefix = var.ses_s3_key_prefix
     position          = 1
     topic_arn         = null
   }

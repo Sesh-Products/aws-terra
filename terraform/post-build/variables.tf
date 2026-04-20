@@ -230,6 +230,12 @@ variable "tags" {
 # SES
 # =============================================================================
 
+variable "manage_ses" {
+  description = "Whether this environment owns and manages SES resources. Only one environment should set this to true."
+  type        = bool
+  default     = false
+}
+
 variable "ses_domain" {
   description = "Domain to verify in SES"
   type        = string
@@ -237,9 +243,9 @@ variable "ses_domain" {
 }
 
 variable "ses_email_identities" {
-  description = "List of email addresses to verify in SES"
-  type        = list(string)
-  default     = []
+  description = "Map of email identities to verify in SES (key = logical name, value = email address)"
+  type        = map(string)
+  default     = {}
 }
 
 variable "ses_rule_set_name" {
