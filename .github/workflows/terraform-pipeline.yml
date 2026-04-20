@@ -224,9 +224,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: post-build-plan-${{ env.ENVIRONMENT }}-${{ github.run_id }}
-          path: |
-            terraform/post-build/post-build.tfplan
-            terraform/post-build/.builds/
+          path: terraform/post-build/post-build.tfplan
+          retention-days: 1
+
+      - name: Upload Layer Zips
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-build-layer-zips-${{ env.ENVIRONMENT }}-${{ github.run_id }}
+          path: terraform/post-build/.builds/
           retention-days: 1
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -288,6 +293,12 @@ jobs:
         with:
           name: post-build-plan-${{ env.ENVIRONMENT }}-${{ github.run_id }}
           path: terraform/post-build
+
+      - name: Download Layer Zips
+        uses: actions/download-artifact@v4
+        with:
+          name: post-build-layer-zips-${{ env.ENVIRONMENT }}-${{ github.run_id }}
+          path: terraform/post-build/.builds
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false post-build.tfplan
