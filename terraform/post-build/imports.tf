@@ -1,34 +1,35 @@
 import {
-  to = aws_ses_domain_identity.this
-  id = "data.seshproducts.com"
+  for_each = var.manage_ses ? { this = var.ses_domain } : {}
+  to       = aws_ses_domain_identity.this[each.key]
+  id       = each.value
 }
 
 import {
-  to = aws_ses_domain_dkim.this
-  id = "data.seshproducts.com"
+  for_each = var.manage_ses ? { this = var.ses_domain } : {}
+  to       = aws_ses_domain_dkim.this[each.key]
+  id       = each.value
 }
 
 import {
-  to = aws_ses_email_identity.naimish
-  id = "naimish@seshproducts.com"
+  for_each = var.manage_ses ? var.ses_email_identities : {}
+  to       = aws_ses_email_identity.this[each.key]
+  id       = each.value
 }
 
 import {
-  to = aws_ses_email_identity.data_ingest
-  id = "data-ingest@seshproducts.com"
+  for_each = var.manage_ses ? { this = var.ses_rule_set_name } : {}
+  to       = aws_ses_receipt_rule_set.this[each.key]
+  id       = each.value
 }
 
 import {
-  to = aws_ses_receipt_rule_set.this
-  id = "pos_extract_trigger_dev"
+  for_each = var.manage_ses ? { this = var.ses_rule_set_name } : {}
+  to       = aws_ses_active_receipt_rule_set.this[each.key]
+  id       = each.value
 }
 
 import {
-  to = aws_ses_active_receipt_rule_set.this
-  id = "pos_extract_trigger_dev"
-}
-
-import {
-  to = aws_ses_receipt_rule.this
-  id = "pos_extract_trigger_dev:pos_extract_trigger_dev"
+  for_each = var.manage_ses ? { this = var.ses_rule_set_name } : {}
+  to       = aws_ses_receipt_rule.this[each.key]
+  id       = "${var.ses_rule_set_name}:${var.ses_rule_name}"
 }
