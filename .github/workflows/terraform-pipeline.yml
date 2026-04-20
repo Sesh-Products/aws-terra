@@ -224,7 +224,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: post-build-plan-${{ env.ENVIRONMENT }}-${{ github.run_id }}
-          path: terraform/post-build/post-build.tfplan
+          path: |
+            terraform/post-build/post-build.tfplan
+            terraform/post-build/.builds/
           retention-days: 1
 
   # ─────────────────────────────────────────────────────────────────────────────
