@@ -25,8 +25,9 @@ SNOWFLAKE_WAREHOUSE = os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
 SNOWFLAKE_ROLE      = os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN")
 
 def get_private_key():
+    env = os.environ.get("environment")
     secrets    = boto3.client("secretsmanager")
-    secret     = secrets.get_secret_value(SecretId="snowflake/pos-pipeline/dev/private-key")
+    secret     = secrets.get_secret_value(SecretId=f"snowflake/pos-pipeline/{env}/private-key")
     key_pem    = secret["SecretString"].encode()
     private_key = load_pem_private_key(key_pem, password=None, backend=default_backend())
     return private_key
