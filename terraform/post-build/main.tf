@@ -145,7 +145,8 @@ module "ec2" {
   install_playwright           = each.value.install_playwright
   startup_script               = each.value.startup_script
   additional_policy_statements = each.value.additional_policy_statements
-
+  depends_on                   = [module.storage]
+  
   environment_variables = merge(          # ← keep only this one
     each.value.environment_variables,
     {
